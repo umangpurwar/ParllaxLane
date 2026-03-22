@@ -1,0 +1,28 @@
+/* src/style.css */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer utilities {
+  /* Vertical Grid Line */
+  .grid-line-v {
+    @apply absolute top-0 bottom-0 w-px;
+    background-image: linear-gradient(to bottom, theme('colors.brutal.border') 50%, transparent 50%);
+    background-size: 1px 6px;
+  }
+
+  /* Horizontal Grid Line */
+  .grid-line-h {
+    @apply absolute left-0 right-0 h-px;
+    background-image: linear-gradient(to right, theme('colors.brutal.border') 50%, transparent 50%);
+    background-size: 6px 1px;
+  }
+}
+
+/* Custom scrollbar globally applied */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: theme('colors.brutal.border'); }
+::-webkit-scrollbar-thumb:hover { background: theme('colors.brutal.red'); }

@@ -29,5 +29,6 @@ urlpatterns = [
 
     path("api/admin/", include("admin_panel.urls")),
 
-    path("api/login/", CustomLoginView.as_view())
+    path("api/login/", CustomLoginView.as_view()),
+    path("api/monitoring/", include("monitoring.urls"))
 ]

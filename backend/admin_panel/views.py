@@ -15,12 +15,12 @@ from django.utils.timezone import now
 from django.utils.dateparse import parse_datetime
 
 
-# ================= LIVE DASHBOARD =================
+# live dashboard
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def live_monitor(request, exam_id):
     data = []
-    # Fetch all attempts for this exam, ordered by user and most recent
+    # fetch all attemps
     attempts = (
         ExamAttempt.objects
         .filter(exam_id=exam_id)
@@ -30,7 +30,7 @@ def live_monitor(request, exam_id):
 
     seen_users = set()
     current_time = now()
-    # Define how long we wait before marking a user as gone (e.g., 60 seconds)
+    # threshold time to show
     HEARTBEAT_THRESHOLD = timedelta(seconds=60)
 
     for attempt in attempts:
@@ -38,16 +38,16 @@ def live_monitor(request, exam_id):
             continue
         seen_users.add(attempt.user_id)
 
-        # 1. CALCULATE REAL-TIME STATUS
-        # If last_active is within 60 seconds, they are 'active'. Otherwise, 'inactive'.
+       
+        # active vs inactive session
         is_online = (current_time - attempt.last_active) < HEARTBEAT_THRESHOLD
         
-        # Override the DB status with the real-time presence check
+        # override the db status
         display_status = "active" if (attempt.status == 'active' and is_online) else "inactive"
         if attempt.status == 'terminated':
             display_status = 'terminated'
 
-        # 2. GET LATEST SIGNALS
+        #  latest vioaltion
         latest_violation = (
             Violation.objects
             .filter(attempt=attempt)
@@ -76,10 +76,10 @@ def live_monitor(request, exam_id):
             "attempt_id": attempt.id,
             "violations_count": attempt.total_violations,
             "risk_score": attempt.risk_score,
-            "status": display_status, # Use our calculated status
+            "status": display_status, # 
             "system_health": system_health,
 
-            # Latest signals for the detail modal
+            # violation severity
             "latest_violation": {
                 "type": latest_violation.violation_type,
                 "severity": latest_violation.severity,
@@ -88,7 +88,7 @@ def live_monitor(request, exam_id):
             
             "latest_screenshot": {
                 "id": latest_screenshot.id,
-                "image_url": latest_screenshot.image.url if latest_screenshot and latest_screenshot.image else None,
+                "image_url": f"data:image/png;base64,{latest_screenshot.image}" if latest_screenshot and latest_screenshot.image else None,
                 "timestamp": latest_screenshot.timestamp
             } if latest_screenshot else None
         })
@@ -96,7 +96,7 @@ def live_monitor(request, exam_id):
     return Response(data)
 
 
-# ================= USER DETAIL =================
+# user detail
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def user_detail(request, username):
@@ -147,7 +147,7 @@ def _user_detail_response(username, exam_id=None):
     })
 
 
-# ================= CLEAR VIOLATIONS =================
+# \clear violations
 @api_view(['DELETE', 'POST'])
 @permission_classes([IsAuthenticated])
 def clear_violations(request, username):
@@ -170,7 +170,7 @@ def clear_violations_exam(request, exam_id, username):
     return Response({"status": "cleared"})
 
 
-# ================= CREATE EXAM =================
+# create exam
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def create_exam(request):
@@ -215,7 +215,7 @@ def create_exam(request):
     })
 
 
-# ================= LIST EXAMS =================
+# list exam
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_exams(request):
@@ -225,7 +225,7 @@ def list_exams(request):
     return Response(exams)
 
 
-# ================= TOGGLE EXAM =================
+# turn exam on or off
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 def toggle_exam(request, exam_id):
@@ -233,11 +233,16 @@ def toggle_exam(request, exam_id):
     exam = Exam.objects.get(id=exam_id)
     exam.is_active = not exam.is_active
     exam.save()
+    if not exam.is_active:
+        ExamAttempt.objects.filter(
+        exam=exam,
+        status="active"
+    ).update(status="terminated")
 
     return Response({"status": "toggled"})
 
 
-# ================= PDF =================
+# pdf
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def export_pdf(request, exam_id):
@@ -265,7 +270,7 @@ def export_pdf(request, exam_id):
     return response
 
 
-# ================= EXCEL =================
+# excel
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def export_excel(request, exam_id):
@@ -293,7 +298,6 @@ def export_excel(request, exam_id):
     wb.save(response)
     return response
 
-# In admin_panel/views.py
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
@@ -302,3 +306,30 @@ User = get_user_model()
 def list_all_users(request):
     users = User.objects.all().values('id', 'username', 'first_name', 'last_name')
     return Response(list(users))
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def update_exam_time(request, exam_id):
+    try:
+        exam = Exam.objects.get(id=exam_id)
+    except Exam.DoesNotExist:
+        return Response({"error": "Exam not found"}, status=404)
+
+    start_time_input = request.data.get("start_time")
+    end_time_input = request.data.get("end_time")
+
+    if start_time_input:
+        start_time = parse_datetime(start_time_input)
+        if not start_time:
+            return Response({"error": "Invalid start_time"}, status=400)
+        exam.start_time = start_time
+
+    if end_time_input:
+        end_time = parse_datetime(end_time_input)
+        if not end_time:
+            return Response({"error": "Invalid end_time"}, status=400)
+        exam.end_time = end_time
+
+    exam.save()
+
+    return Response({"status": "updated"})

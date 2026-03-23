@@ -11,7 +11,7 @@
       <div v-if="!isSecureMode" class="absolute inset-0 z-[100] bg-brutal-paper flex flex-col items-center justify-center p-8">
         <h2 class="text-4xl font-medium tracking-tighter text-brutal-ink mb-4">Secure Environment Required</h2>
         <p class="text-[10px] uppercase tracking-widest font-semibold text-gray-500 mb-8 text-center max-w-md">
-          ParallaxLane requires Fullscreen and Camera access. Leaving fullscreen, switching tabs, or opening external assistants (like Gemini/Copilot) will be logged as violations.
+          ParallaxLane requires Fullscreen and Camera access. Leaving fullscreen, switching tabs, or opening external assistants will be logged as violations.
         </p>
         <button @click="enterSecureMode" class="bg-brutal-red text-white px-12 py-5 text-[12px] uppercase tracking-super-wide font-bold hover:bg-brutal-ink transition-colors shadow-2xl">
           Initialize Secure Mode
@@ -30,6 +30,23 @@
             </button>
             <button @click="executeSubmit" class="flex-1 bg-brutal-red text-white py-4 text-[10px] uppercase tracking-super-wide font-bold hover:bg-brutal-ink transition-colors">
               Submit Exam
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="showLeaveWarningModal" class="absolute inset-0 z-[120] bg-brutal-dark/90 backdrop-blur-md flex items-center justify-center p-8">
+        <div class="bg-brutal-paper border-4 border-brutal-ink p-8 max-w-md w-full shadow-[8px_8px_0px_0px_rgba(239,63,35,1)] flex flex-col text-center">
+          <h3 class="text-3xl font-black tracking-tighter text-brutal-red mb-4 uppercase italic">Security Alert</h3>
+          <p class="text-sm font-bold text-gray-800 mb-8 leading-tight">
+            You are attempting to leave the secure exam environment. Leaving now will <span class="text-brutal-red">automatically submit</span> your current answers and terminate your session.
+          </p>
+          <div class="flex flex-col gap-3">
+            <button @click="cancelLeave" class="w-full border-2 border-brutal-ink text-brutal-ink py-4 text-[10px] uppercase tracking-super-wide font-black hover:bg-brutal-ink hover:text-white transition-colors">
+              Return to Exam
+            </button>
+            <button @click="confirmLeaveAndSubmit" class="w-full bg-brutal-red text-white py-4 text-[10px] uppercase tracking-super-wide font-black hover:bg-brutal-ink transition-colors">
+              Leave & Submit
             </button>
           </div>
         </div>
@@ -111,7 +128,7 @@
                   {{ label }}
                 </div>
                 <span class="text-lg font-medium" :class="answers[currentQuestion.id] === label ? 'text-brutal-red' : 'text-brutal-ink'">
-                  Option {{ label.toUpperCase() }}
+                  {{ currentQuestion['option_' + label] || 'Option ' + label.toUpperCase() }}
                 </span>
               </label>
             </div>
@@ -205,8 +222,20 @@
 </template>
 
 <script setup>
+
+const handleExamTermination = (message = "Exam has been terminated by admin") => {
+  errorMessage.value = message;
+
+  cleanup(); // stop camera, timers, heartbeat
+
+  setTimeout(() => {
+    localStorage.removeItem("attempt_id");
+    router.push("/dashboard");
+  }, 2000);
+};
+
 import { ref, onMounted, onUnmounted, nextTick, computed } from "vue"
-import { useRoute, useRouter } from "vue-router"
+import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router" 
 import api from "../services/api"
 
 const route = useRoute()
@@ -220,7 +249,9 @@ const violationCount = ref(0)
 const warningMessage = ref("")
 const errorMessage = ref("")
 const statusMessage = ref("")
+
 const showSubmitModal = ref(false)
+const showLeaveWarningModal = ref(false) 
 
 const videoRef = ref(null)
 
@@ -229,14 +260,45 @@ let mediaStream = null
 let cameraInterval = null
 let heartbeatInterval = null
 
-const attemptId = localStorage.getItem("attempt_id")
+// Initialize as null, we will set this AFTER the camera is allowed
+const attemptId = ref(null) 
 const violationCooldowns = {}
 
 const isSecureMode = ref(false)
+let isAutoSubmitting = false
+let pendingRoute = null
 
-// ================= NEW PAGINATION LOGIC =================
+// ================= ROUTING LOGIC =================
+onBeforeRouteLeave((to, from, next) => {
+  if (isAutoSubmitting || !isSecureMode.value || showSubmitModal.value) {
+    next()
+  } else {
+    showLeaveWarningModal.value = true
+    pendingRoute = to
+    next(false) 
+  }
+})
+
+const cancelLeave = () => {
+  showLeaveWarningModal.value = false
+  pendingRoute = null
+}
+
+const confirmLeaveAndSubmit = async () => {
+  showLeaveWarningModal.value = false
+  isAutoSubmitting = true 
+  await submitExam()
+  
+  if (pendingRoute) {
+    router.push(pendingRoute.path)
+  } else {
+    router.push("/dashboard")
+  }
+}
+
+// ================= PAGINATION LOGIC =================
 const currentQuestionIndex = ref(0)
-const visitedQuestions = ref(new Set([0])) // Mark first question as visited initially
+const visitedQuestions = ref(new Set([0]))
 
 const currentQuestion = computed(() => {
   if (!exam.value || !exam.value.questions) return null
@@ -260,52 +322,37 @@ const prevQuestion = () => {
   }
 }
 
-// Compute the class for the navigation tracker grid squares
 const getQuestionStatusClass = (questionId, index) => {
   const isAnswered = answers.value[questionId] !== undefined && answers.value[questionId] !== ""
   const isVisited = visitedQuestions.value.has(index)
 
-  if (isAnswered) {
-    return 'bg-brutal-red border-brutal-red text-white' // Orange/Red if answered
-  } else if (isVisited) {
-    return 'bg-brutal-ink border-brutal-ink text-white' // Black if seen but not answered
-  } else {
-    return 'bg-transparent border-brutal-border text-brutal-ink hover:border-brutal-ink' // Outline if untouched
-  }
+  if (isAnswered) return 'bg-brutal-red border-brutal-red text-white'
+  else if (isVisited) return 'bg-brutal-ink border-brutal-ink text-white'
+  else return 'bg-transparent border-brutal-border text-brutal-ink hover:border-brutal-ink'
 }
 
-// ================= ORIGINAL CORE LOGIC =================
+// ================= CORE EXAM LOGIC =================
 
-const loadExam = async () => {
+// Step 1: Just load the data so the UI doesn't crash
+const fetchExamData = async () => {
   try {
     const examId = route.params.id
     const res = await api.get(`exams/${examId}/`)
     exam.value = res.data?.data || res.data
-
     timeLeft.value = exam.value.duration * 60
-    visitedQuestions.value.add(0) // Ensure first is marked visited when data loads
-    startTimer()
   } catch (error) {
-    errorMessage.value = "Failed to load exam data."
+    errorMessage.value = "Failed to load exam data. Please return to dashboard."
   }
 }
 
-const startTimer = () => {
-  timer = setInterval(() => {
-    if (timeLeft.value > 0) timeLeft.value--
-    else submitExam()
-  }, 1000)
-}
 
-const formatTime = () => {
-  const m = Math.floor(timeLeft.value / 60)
-  const s = timeLeft.value % 60
-  return `${m}:${s.toString().padStart(2, "0")}`
-}
-
+// Step 2: The User clicks "Initialize Secure Mode"
 const enterSecureMode = async () => {
   try {
-    // robust cross-browser fullscreen request
+    // 1. Ask for Camera permission FIRST
+    await startWebcam();
+    
+    // 2. If camera is allowed, force Fullscreen
     const docEl = document.documentElement;
     if (docEl.requestFullscreen) {
       await docEl.requestFullscreen();
@@ -315,35 +362,84 @@ const enterSecureMode = async () => {
       await docEl.msRequestFullscreen();
     }
     
-    await startWebcam();
-    isSecureMode.value = true;
     
-    // Start pinging the backend periodically to check for commands like request_screenshot
-    heartbeatInterval = setInterval(pingBackend, 10000);
+    const examId = route.params.id;
+    console.log("SETTING EXAM ID:", examId);
+    
+    // 3. Create the Database Record (Start Attempt)
+    try {
+      localStorage.setItem("active_exam_id", examId);  
+      window.dispatchEvent(new Event("exam-started"));
+      const startRes = await api.post(`exams/${examId}/start/`);
+      if (startRes.data && startRes.data.attempt_id) {
+        attemptId.value = startRes.data.attempt_id;
+        localStorage.setItem("attempt_id", startRes.data.attempt_id);
+      }
+    } catch (startErr) {
+      console.warn("Failed to log start attempt with backend.", startErr);
+    }
+
+    // 4. Start Exam Environment
+    isSecureMode.value = true;
+    visitedQuestions.value.add(0); 
+    startTimer();
+    monitorCamera();
+    
+    // 5. Start Heartbeat
+    pingBackend(); 
+    heartbeatInterval = setInterval(pingBackend, 5000); 
+    
   } catch (err) {
-    console.error(err);
-    errorMessage.value = "Failed to enter secure mode. Please allow permissions.";
+    console.error("Secure mode initialization failed:", err); // Added this so you can see exact errors in console
+    errorMessage.value = "Camera access denied. You cannot take this exam without a camera.";
     setTimeout(() => (errorMessage.value = ""), 4000);
   }
 }
 
+const startTimer = () => {
+  timer = setInterval(() => {
+    if (timeLeft.value > 0) {
+      timeLeft.value--;
+    } else {
+      if (!isSubmitting) {
+        submitExam();
+      }
+    }
+  }, 1000);
+}
+
+const formatTime = () => {
+  const m = Math.floor(timeLeft.value / 60)
+  const s = timeLeft.value % 60
+  return `${m}:${s.toString().padStart(2, "0")}`
+}
+
 const pingBackend = async () => {
-  if (!isSecureMode.value || !attemptId) return;
+  if (!isSecureMode.value || !attemptId.value) return; 
+
   try {
-    // Ping backend to inform we are active and to receive any commands
-    const res = await api.get(`monitoring/ping/${attemptId}/`);
-    if (res.data && res.data.request_screenshot) {
+    const response = await api.post(`monitoring/heartbeat/`, { 
+      attempt_id: attemptId.value 
+    });
+
+    if (response.data && response.data.take_screenshot) {
+      console.log("📸 Admin requested a live screenshot!");
       captureScreenshot();
     }
-  } catch (err) {
-    // Fail silently so it doesn't disrupt the user interface
+
+  } catch (error) {
+    if (error.response?.status === 403) {
+      handleExamTermination(error.response.data?.error);
+    } else {
+      console.warn("Heartbeat failed, retrying on next tick...");
+    }
   }
 }
 
 const handleFullscreenChange = () => {
-  if (!document.fullscreenElement && isSecureMode.value && !showSubmitModal.value) {
+  if (!document.fullscreenElement && isSecureMode.value && !showSubmitModal.value && !showLeaveWarningModal.value) {
     logViolation("ESC_FULLSCREEN");
-    isSecureMode.value = false; // Force user to re-enter
+    isSecureMode.value = false;
   }
 }
 
@@ -356,106 +452,130 @@ const executeSubmit = () => {
   submitExam();
 }
 
+let isSubmitting=false
 const submitExam = async () => {
+  
+  if (isSubmitting) return;
+  isSubmitting = true;
+
   cleanup()
+  isAutoSubmitting = true; 
 
   try {
     statusMessage.value = "Submitting exam securely..."
 
     const examId = route.params.id
+
+    
+    if (!examId) {
+      console.error("Exam ID missing — stopping submit");
+      return;
+    }
+
     const res = await api.post(`exams/${examId}/submit/`, {
       answers: answers.value
     })
 
     statusMessage.value = `Exam Submitted! Score: ${res.data.score}/${res.data.total}`
-
     setTimeout(() => router.push("/dashboard"), 3000)
 
-  } catch {
-    statusMessage.value = "Submission failed. Please contact administrator."
-    setTimeout(() => router.push("/dashboard"), 3000)
+  } catch (error) {
+  if (error.response?.status === 403) {
+    handleExamTermination(error.response.data?.error);
+    return;
   }
+
+  console.error("SUBMISSION ERROR:", error.response?.data || error.message);
+  statusMessage.value = "Submission failed. Check console for details."
+  setTimeout(() => router.push("/dashboard"), 3000)
+}
 }
 
+// ================= SCREENSHOT =================
 const captureScreenshot = () => {
-  if (!videoRef.value) return
+  if (!videoRef.value || !attemptId.value) return;
 
-  const canvas = document.createElement("canvas")
-  canvas.width = videoRef.value.videoWidth
-  canvas.height = videoRef.value.videoHeight
+  const canvas = document.createElement("canvas");
+  canvas.width = videoRef.value.videoWidth;
+  canvas.height = videoRef.value.videoHeight;
 
-  const ctx = canvas.getContext("2d")
-  ctx.drawImage(videoRef.value, 0, 0)
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(videoRef.value, 0, 0);
 
-  const image = canvas.toDataURL("image/png")
+  const image = canvas.toDataURL("image/png");
 
-  // Fire and forget (Fail silently to avoid UI blocking)
-  if (attemptId) {
-    api.post("monitoring/screenshot/", {
-      attempt_id: attemptId,
-      image
-    }).catch(() => {})
-  }
-}
+  api.post("monitoring/screenshot/", {
+    attempt_id: attemptId.value,
+    image
+  }).catch((error) => {
+    if (error.response?.status === 403) {
+      handleExamTermination(error.response.data?.error);
+    }
+  });
+}; // ✅ CLOSED PROPERLY
 
+
+// ================= VIOLATION =================
 const logViolation = async (type) => {
-  if (!isSecureMode.value) return; // Prevent logging before exam is actually secured
+  if (!isSecureMode.value) return;
 
-  const now = Date.now()
+  const now = Date.now();
+  const cooldownKey =
+    (type === 'TAB_SWITCH' || type === 'WINDOW_FOCUS_LOST')
+      ? 'FOCUS_GROUP'
+      : type;
 
-  // Group focus loss violations (Tab Switch + Blur) so Alt+Tab doesn't double count
-  const cooldownKey = (type === 'TAB_SWITCH' || type === 'WINDOW_FOCUS_LOST') ? 'FOCUS_GROUP' : type;
+  if (violationCooldowns[cooldownKey] && now - violationCooldowns[cooldownKey] < 2000) return;
+  violationCooldowns[cooldownKey] = now;
 
-  // 2 second cooldown per violation group to prevent spamming
-  if (violationCooldowns[cooldownKey] && now - violationCooldowns[cooldownKey] < 2000) return
-  violationCooldowns[cooldownKey] = now
-
-  // Optimistic UI Update (Shows immediately to user regardless of API lag)
   violationCount.value += 1;
-  warningMessage.value = type.replace(/_/g, ' '); // Format the type to plain string without emoji
+  warningMessage.value = type.replace(/_/g, ' ');
   setTimeout(() => (warningMessage.value = ""), 4000);
 
-  if (!attemptId) return;
+  if (!attemptId.value) return;
 
   try {
-    // Take a screenshot immediately upon a violation
     captureScreenshot();
 
-    const res = await api.post("monitoring/log/", {
-      attempt_id: attemptId,
-      type,
-      severity: 1
-    })
+    let res;
+    try {
+      res = await api.post("monitoring/log/", {
+        attempt_id: attemptId.value,
+        type,
+        severity: 1
+      });
+    } catch (error) {
+      if (error.response?.status === 403) {
+        handleExamTermination(error.response.data?.error);
+        return;
+      } else {
+        console.error("Failed to log violation", error);
+        return;
+      }
+    }
 
-    // Sync with true backend count
     if (res.data && res.data.violations !== undefined) {
       violationCount.value = res.data.violations;
     }
 
     if (res.data && res.data.state === "terminated") {
-      errorMessage.value = "EXAM TERMINATED DUE TO MULTIPLE VIOLATIONS."
-      setTimeout(() => submitExam(), 2000)
+      errorMessage.value = "EXAM TERMINATED DUE TO MULTIPLE VIOLATIONS.";
+      setTimeout(() => submitExam(), 2000);
     }
 
   } catch (err) {
-    console.error("Failed to log violation to backend", err);
+    console.error("Failed to log violation", err);
   }
-}
-
+};
 const startWebcam = async () => {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-    mediaStream = stream
+  // Throws an error if user clicks "Block"
+  const stream = await navigator.mediaDevices.getUserMedia({ video: true })
+  mediaStream = stream
 
-    await nextTick()
-    if (videoRef.value) {
-        videoRef.value.srcObject = stream
-        await videoRef.value.play()
-    }
-
-  } catch {
-    errorMessage.value = "WEBCAM REQUIRED. REDIRECTING..."
-    setTimeout(() => router.push("/dashboard"), 3000)
+  await nextTick()
+  if (videoRef.value) {
+      videoRef.value.srcObject = stream
+      await videoRef.value.play()
   }
 }
 
@@ -463,24 +583,15 @@ const monitorCamera = () => {
   cameraInterval = setInterval(async () => {
     if (!mediaStream || !isSecureMode.value) return
     const v = mediaStream.getVideoTracks()[0]
-    
-    // If track is stopped/disabled by user, log violation and immediately re-request
     if (!v || v.readyState !== "live" || !v.enabled) {
       logViolation("CAMERA_OFF")
-      await startWebcam() 
+      // Stop trying to restart it constantly if they unplugged it, just log it.
     }
   }, 2000)
 }
 
-const handleTab = () => {
-  if (document.hidden && isSecureMode.value) logViolation("TAB_SWITCH")
-}
-
-const handleBlur = () => {
-  // Catches window losing focus (e.g., Opening Gemini/Copilot sidebars)
-  if (isSecureMode.value) logViolation("WINDOW_FOCUS_LOST")
-}
-
+const handleTab = () => { if (document.hidden && isSecureMode.value) logViolation("TAB_SWITCH") }
+const handleBlur = () => { if (isSecureMode.value) logViolation("WINDOW_FOCUS_LOST") }
 const handleKey = (e) => {
   if (!isSecureMode.value) return;
   if (e.key === "Escape") logViolation("ESC_FULLSCREEN")
@@ -497,28 +608,20 @@ const cleanup = () => {
   window.removeEventListener("blur", handleBlur)
   document.removeEventListener("fullscreenchange", handleFullscreenChange)
 
-  if (document.fullscreenElement) {
-    document.exitFullscreen().catch(() => {})
-  }
-
-  if (mediaStream) {
-    mediaStream.getTracks().forEach(t => t.stop())
-  }
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+  if (mediaStream) mediaStream.getTracks().forEach(t => t.stop())
 }
 
-onMounted(async () => {
-  // Prevent context menu (right click)
+onMounted(() => {
   document.addEventListener('contextmenu', event => event.preventDefault());
   
-  await loadExam()
-  // Note: startWebcam() is now called when the user clicks 'Initialize Secure Mode'
-
+  // Only fetch the text data on mount. Do NOT start the exam attempt yet.
+  fetchExamData()
+  
   document.addEventListener("visibilitychange", handleTab)
   window.addEventListener("blur", handleBlur)
   document.addEventListener("keydown", handleKey)
   document.addEventListener("fullscreenchange", handleFullscreenChange)
-
-  monitorCamera()
 })
 
 onUnmounted(() => {
@@ -526,13 +629,3 @@ onUnmounted(() => {
   cleanup()
 })
 </script>
-
-<style scoped>
-/* Only keep the CSS transition animations. Everything else is handled globally in style.css */
-.fade-enter-active, .fade-leave-active {
-  transition: opacity 0.5s ease;
-}
-.fade-enter-from, .fade-leave-to {
-  opacity: 0;
-}
-</style>

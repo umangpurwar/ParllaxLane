@@ -33,12 +33,27 @@
           <div class="grid-line-v left-[66%]"></div>
       </div>
 
-      <header class="h-20 flex items-center justify-between px-8 border-b border-brutal-border relative z-10 bg-brutal-paper">
+     <header class="h-20 flex items-center justify-between px-8 border-b border-brutal-border relative z-10 bg-brutal-paper">
         <div>
           <h1 class="text-2xl font-medium tracking-tight capitalize">Welcome, {{ adminName }}</h1>
           <p class="text-[9px] uppercase tracking-widest font-semibold text-gray-500 mt-1">Command Center & Invigilation</p>
         </div>
+        
         <div class="flex items-center gap-6">
+          <div class="flex items-center gap-3">
+            <label class="text-[9px] uppercase tracking-widest font-bold text-gray-500">Monitoring:</label>
+            <select 
+              v-model="currentMonitorExam" 
+              @change="setMonitoringExam"
+              class="border-2 border-brutal-ink bg-white text-brutal-ink px-4 py-2 text-xs font-bold uppercase cursor-pointer outline-none focus:ring-2 focus:ring-brutal-red"
+            >
+              <option value="" disabled>Select an Exam...</option>
+              <option v-for="exam in activeExamsList" :key="exam.id" :value="exam.id">
+                {{ exam.title }} (ID: {{ exam.id }})
+              </option>
+            </select>
+          </div>
+
           <div class="px-6 h-10 bg-brutal-ink text-brutal-paper flex items-center justify-center font-bold text-[10px] uppercase tracking-widest">
             {{ adminName }}
           </div>
@@ -102,7 +117,7 @@
             <div class="grid grid-cols-1 gap-4 overflow-y-auto">
               <div v-for="(shot, index) in selectedUser.screenshots" :key="index" class="bg-white border border-brutal-border flex flex-col sm:flex-row">
                 <div class="w-full sm:w-48 h-32 bg-brutal-ink relative flex items-center justify-center overflow-hidden">
-                  <img v-if="shot.image_url" :src="'http://localhost:8000' + shot.image_url" class="object-cover w-full h-full" />
+                  <img :src="shot.image_url" />
                   <div v-if="shot.critical" class="absolute inset-0 border-2 border-brutal-red shadow-[inset_0_0_20px_rgba(239,63,35,0.5)]"></div>
                 </div>
                 <div class="p-4 flex-1">
@@ -122,8 +137,26 @@
 </template>
 
 <script setup>
+
+const getCurrentExamId = () => {
+  return localStorage.getItem("active_exam_id");
+};
+
+const handleUnauthorized = () => {
+  localStorage.clear();
+
+  if (liveStatsInterval) {
+    clearInterval(liveStatsInterval); // 🔥 stop polling
+  }
+
+  if (router.currentRoute.value.path !== "/login") {
+    router.push("/login");
+  }
+};
+
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
+
 
 // Modular Feature Imports
 import DashboardOverview from '../components/DashboardOverview.vue';
@@ -132,6 +165,7 @@ import ExamControl from '../components/ExamControl.vue';
 import ReportsTab from '../components/ReportsTab.vue';
 import UserDirectory from '../components/UserDirectory.vue';
 import LiveMonitor from '../components/LiveMonitor.vue';
+import api from '../services/api';
 
 const router = useRouter();
 
@@ -148,16 +182,46 @@ const liveCandidatesCount = ref(0);
 const highRiskCount = ref(0);
 let liveStatsInterval = null;
 
-// Helper for Auth Headers
+
+const currentMonitorExam = ref(localStorage.getItem("active_exam_id") || "");
+
+
+const activeExamsList = computed(() => {
+  return exams.value.filter(e => e.status === 'Active');
+});
+
+
+const setMonitoringExam = () => {
+  if (currentMonitorExam.value) {
+    localStorage.setItem("active_exam_id", currentMonitorExam.value);
+    console.log("Admin is now monitoring Exam ID:", currentMonitorExam.value);
+    
+   
+    fetchDashboardStats(); 
+    
+   
+    if (activeTab.value === 'live') {
+      activeTab.value = 'dashboard';
+      setTimeout(() => { activeTab.value = 'live'; }, 50);
+    }
+  }
+};
+
+
 const getHeaders = () => ({
   'Authorization': `Bearer ${localStorage.getItem("access_token")}`,
   'Content-Type': 'application/json'
 });
 
-// Fetch Real Exams
+
 const fetchExams = async () => {
   try {
     const response = await fetch(`${API_BASE_URL}/exam/list/`, { headers: getHeaders() });
+
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+      }
     if (response.ok) {
       const data = await response.json();
       exams.value = data.map(exam => ({
@@ -178,17 +242,39 @@ const activeExamsCount = computed(() => exams.value.filter(e => e.status === 'Ac
  */
 const fetchDashboardStats = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/exam/1/live/`, { headers: getHeaders() });
-    if (response.ok) {
-      const data = await response.json();
-      // Count only currently heartbeat-active users
-      liveCandidatesCount.value = data.filter(u => u.status === 'active').length;
-      highRiskCount.value = data.filter(u => u.violations_count > 0 || u.risk_score >= 10).length;
-    }
-  } catch (error) { console.error("Stats load failed:", error); }
-};
+    const examId = localStorage.getItem("active_exam_id");
 
+    if (!examId){
+      console.warn("No active exam id found");
+      return;
+    } 
+    
+
+    const response = await api.get(`admin/exam/${examId}/live/`);
+
+    const data = response.data;
+    console.log("LIVE DASHBOARD DATA:", data);
+
+    liveCandidatesCount.value =
+      data.filter(u => u.status === 'active').length;
+
+    highRiskCount.value =
+      data.filter(u => u.violations_count > 0 || u.risk_score >= 10).length;
+
+  } 
+  catch (error) {
+    console.error("Stats load failed:", error);
+  }
+};
 onMounted(() => {
+    
+    window.addEventListener("exam-started", fetchDashboardStats);
+
+    if (!localStorage.getItem("access_token")) {
+     router.push("/login");
+      return;
+      }
+
   const storedName = localStorage.getItem("username");
   if (storedName) adminName.value = storedName;
   fetchExams();
@@ -198,6 +284,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  window.removeEventListener("exam-started", fetchDashboardStats);
   if (liveStatsInterval) clearInterval(liveStatsInterval);
 });
 
@@ -220,6 +307,11 @@ const openModal = async (user) => {
   try {
     const target = user.username || user.id;
     const response = await fetch(`${API_BASE_URL}/user/${target}/`, { headers: getHeaders() });
+
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
+      }
     if (response.ok) {
       const data = await response.json();
       selectedUser.value.breakdown = data.breakdown || {};

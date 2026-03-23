@@ -38,9 +38,10 @@
             </div>
             <div>
               <h3 class="font-medium tracking-tight text-brutal-ink">{{ user.name }}</h3>
-              <p class="text-[9px] uppercase tracking-widest font-semibold" :class="user.status === 'Active' ? 'text-green-600' : 'text-gray-400'">
+              <p class="text-[9px] uppercase tracking-widest font-semibold" 
+                 :class="user.status === 'Active' ? 'text-green-600' : 'text-gray-400'">
                 {{ user.status }}
-                  </p>
+              </p>
             </div>
           </div>
           <div class="text-right">
@@ -84,69 +85,108 @@ const emit = defineEmits(['open-modal']);
 
 // State
 const liveUsers = ref([]);
-const activeFilter = ref('all'); // 'all' or 'risk'
+const activeFilter = ref('all'); 
 let pollingInterval = null;
+let isFetching = false; 
 
-// API Config
-const CURRENT_EXAM_ID = 1; // Note: You can make this dynamic via props later
+const CURRENT_EXAM_ID = () => localStorage.getItem("active_exam_id"); 
 const API_BASE_URL = 'http://localhost:8000/api/admin';
 
+// Headers
 const getHeaders = () => ({
   'Authorization': `Bearer ${localStorage.getItem("access_token")}`,
   'Content-Type': 'application/json'
 });
 
-// Fetch Data from DRF Backend
+
+const handleUnauthorized = () => {
+  localStorage.clear();
+  window.location.href = "/login";
+};
+
+
 const fetchLiveMonitorData = async () => {
+
+  if (isFetching || !localStorage.getItem("access_token")) return; 
+  isFetching = true;
+
+  const examId = localStorage.getItem("active_exam_id")
   try {
-    const response = await fetch(`${API_BASE_URL}/exam/${CURRENT_EXAM_ID}/live/`, { headers: getHeaders() });
-    
-    if (response.ok) {
-      const data = await response.json();
-      
-      // Map DRF response directly to the expected Vue format
-      liveUsers.value = data.map(item => ({
-        id: item.attempt_id,
-        username: item.username,
-        name: item.username, // Using username as display name fallback
-        status: item.status === 'active' ? 'Active' : 'Inactive',
-        riskScore: item.risk_score || 0,
-        totalViolations: item.violations_count || 0,
-        health: {
-          camera: item.system_health?.camera ?? true, // Defaults to true if missing
-          tab: item.system_health?.tab_focus ?? true,
-          fullscreen: item.system_health?.fullscreen ?? true
-        }
-      }));
+    if (!examId) return;
+    const response = await fetch(
+      `${API_BASE_URL}/exam/${examId}/live/`, 
+      { headers: getHeaders() }
+    );
+
+    // expire token
+    if (response.status === 401) {
+      handleUnauthorized();
+      return;
     }
+
+    if (!response.ok) {
+      console.error("API Error:", response.status);
+      return;
+    }
+
+    const data = await response.json();
+
+    liveUsers.value = data.map(item => ({
+      id: item.attempt_id,
+      username: item.username,
+      name: item.username,
+      status:
+        item.status === 'active'
+          ? 'Active'
+          : item.status === 'terminated'
+          ? 'Terminated'
+          : 'Inactive',
+      riskScore: item.risk_score || 0,
+      totalViolations: item.violations_count || 0,
+      health: {
+        camera: item.system_health?.camera ?? true,
+        tab: item.system_health?.tab_focus ?? true,
+        fullscreen: item.system_health?.fullscreen ?? true
+      }
+    }));
+
   } catch (error) {
-    console.error("Failed to fetch live monitoring data", error);
+    console.error("Failed to fetch live monitoring data:", error);
+  } finally {
+    isFetching = false;
   }
 };
 
-// Polling Lifecycle
+// Lifecycle
 onMounted(() => {
+  if(pollingInterval){
+    clearInterval(pollingInterval)
+  }
   fetchLiveMonitorData();
-  // Poll every 5 seconds to keep invigilation live
-  pollingInterval = setInterval(fetchLiveMonitorData, 5000); 
+
+  pollingInterval = setInterval(() => {
+    fetchLiveMonitorData();
+  }, 5000);
 });
 
 onUnmounted(() => {
   if (pollingInterval) clearInterval(pollingInterval);
 });
 
-// Computed Properties for Dynamic UI
+// Computed
 const totalCandidates = computed(() => liveUsers.value.length);
 
-// A user is considered high risk if they have violations, a score > 10, or are terminated
 const highRiskUsersList = computed(() => {
-  return liveUsers.value.filter(u => u.totalViolations > 0 || u.riskScore >= 10 || u.status === 'Terminated');
+  return liveUsers.value.filter(
+    u => u.totalViolations > 0 || u.riskScore >= 10 || u.status === 'Terminated'
+  );
 });
 
 const highRiskCount = computed(() => highRiskUsersList.value.length);
 
-// Switch array based on the active tab button
 const displayedUsers = computed(() => {
-  return activeFilter.value === 'risk' ? highRiskUsersList.value : liveUsers.value;
+  return activeFilter.value === 'risk' 
+    ? highRiskUsersList.value 
+    : liveUsers.value;
 });
 </script>

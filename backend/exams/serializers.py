@@ -20,12 +20,7 @@ class ExamSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Exam
-        fields = [
-            "id",
-            "title",
-            "description",
-            "duration",
-        ]
+        fields = '__all__'
 
 
 class ExamDetailSerializer(serializers.ModelSerializer):

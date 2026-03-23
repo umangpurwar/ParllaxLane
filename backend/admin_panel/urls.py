@@ -15,4 +15,5 @@ urlpatterns = [
     path("exam/list/", list_exams),
     path("exam/<int:exam_id>/toggle/", toggle_exam),
     path('users/', list_all_users),
+    path("exam/<int:exam_id>/update-time/", update_exam_time),
 ]

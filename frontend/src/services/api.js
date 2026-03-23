@@ -2,14 +2,14 @@ import axios from 'axios';
 import router from '../router'; // Adjust path to your Vue router
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/',
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
   }
 });
 
-// Request Interceptor: Attach JWT Token
+let isRedirecting = false;
 api.interceptors.request.use(
   (config) => {
     const token =
@@ -32,15 +32,20 @@ api.interceptors.response.use(
   (error) => {
     if (error.response) {
       if (error.response.status === 401) {
-        // Token expired or invalid
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('refresh_token');
-        localStorage.removeItem('token');
-        localStorage.removeItem('is_admin');
+        if (!isRedirecting) {
+        isRedirecting = true;
+
+  
+        localStorage.clear();
+
+      if (router.currentRoute.value.path !== '/login') {
         router.push('/login');
-      } else if (error.response.status === 500) {
+        }
+      }
+    }
+ else if (error.response.status === 500) {
         console.error("Critical Backend Error. Check server logs.");
-        // Optionally trigger a global toast/notification here
+        
       }
     }
     return Promise.reject(error);

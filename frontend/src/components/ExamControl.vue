@@ -26,7 +26,11 @@
         <div class="flex flex-col md:flex-row items-start md:items-center justify-between mt-4 border-t border-brutal-border/30 pt-6 gap-4">
           <div class="flex items-center gap-4">
             <label class="text-[9px] uppercase font-bold text-gray-500 tracking-widest">Postpone To:</label>
-            <input type="date" v-model="exam.date" class="border-b border-brutal-border text-sm focus:outline-none focus:border-brutal-red bg-transparent py-1 font-medium text-brutal-ink">
+            <input 
+              type="date" 
+              v-model="exam.date" 
+              @change="updateExamTime(exam)"
+              class="border-b border-brutal-border text-sm focus:outline-none focus:border-brutal-red bg-transparent py-1 font-medium text-brutal-ink">
           </div>
           <button @click="toggleExamStatus(exam)" class="px-6 py-3 w-full md:w-auto border border-brutal-ink text-brutal-ink text-[10px] uppercase tracking-widest font-bold hover:bg-brutal-ink hover:text-white transition-colors">
             {{ exam.status === 'Active' ? 'Disable Exam' : 'Enable Exam' }}
@@ -58,7 +62,7 @@ const getHeaders = () => ({
 const toggleExamStatus = async (exam) => {
   try {
     // 1. Call DRF backend
-    const response = await fetch(`${API_BASE_URL}/toggle_exam/${exam.id}/`, {
+    const response = await fetch(`${API_BASE_URL}/exam/${exam.id}/toggle/`, {
       method: 'POST',
       headers: getHeaders()
     });
@@ -73,4 +77,20 @@ const toggleExamStatus = async (exam) => {
     console.error("Network error:", error);
   }
 };
+
+const updateExamTime = async (exam) => {
+  try {
+    await fetch(`${API_BASE_URL}/exam/${exam.id}/update-time/`, {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify({
+        start_time: exam.date + "T00:00:00",
+        end_time: exam.date + "T23:59:00"
+      })
+    });
+  } catch (e) {
+    console.error("Update time failed:", e);
+  }
+};
+
 </script>

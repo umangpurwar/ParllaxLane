@@ -107,14 +107,9 @@ class ScreenshotUploadView(APIView):
 @permission_classes([IsAuthenticated])
 def student_heartbeat(request):
     attempt_id = request.data.get("attempt_id")
-    
     if not attempt_id:
         return Response({"error": "attempt_id required"}, status=400)
 
-    # Quickly update the last_active timestamp without triggering massive saves
-    ExamAttempt.objects.filter(
-        id=attempt_id, 
-        user=request.user
-    ).update(last_active=now())
-
+    
+    ExamAttempt.objects.filter(id=attempt_id, user=request.user).update(last_active=now())
     return Response({"status": "alive"})

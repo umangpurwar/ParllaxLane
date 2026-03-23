@@ -114,7 +114,7 @@ onMounted(() => {
     setTimeout(() => { 
         isLoading.value = false; 
         setTimeout(initThree, 100); 
-    }, 1500);
+    }, 1000);
 });
 
 onUnmounted(() => {

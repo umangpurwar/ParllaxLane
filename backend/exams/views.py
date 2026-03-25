@@ -3,6 +3,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import api_view, permission_classes
 from .models import Question, Answer, ExamAttempt, Exam
+from django.utils.timezone import now
 
 
 
@@ -12,14 +13,16 @@ from monitoring.models import Violation
 
 class ExamListView(generics.ListAPIView):
 
-    queryset = Exam.objects.filter(is_published=True)
+    def get_queryset(self):
+        return Exam.objects.filter(is_published=True)
     serializer_class = ExamSerializer
     permission_classes = [IsAuthenticated]
 
 
 class ExamDetailView(generics.RetrieveAPIView):
 
-    queryset = Exam.objects.filter(is_published=True)
+    def get_queryset(self):
+        return Exam.objects.filter(is_published=True)
     serializer_class = ExamDetailSerializer
     permission_classes = [IsAuthenticated]
 
@@ -87,7 +90,8 @@ class SubmitExamView(generics.GenericAPIView):
                 continue 
 
         attempt.score = score
-        attempt.status = "completed" 
+        attempt.status = "completed"
+        attempt.end_time= now() 
         attempt.save()
 
         return Response({
@@ -118,3 +122,11 @@ def my_results(request):
         })
 
     return Response(data)
+
+class CreateExamView(generics.CreateAPIView):
+    serializer_class = ExamSerializer
+    permission_classes = [IsAuthenticated]
+
+    def perform_create(self, serializer):
+        print("CREATE VIEW HIT") 
+        serializer.save(created_by=self.request.user)

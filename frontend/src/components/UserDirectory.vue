@@ -36,7 +36,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue';
 
-// ADDED: Define emits so the 'View' button works
+// define emits
 const emit = defineEmits(['open-modal']);
 
 const searchQuery = ref('');
@@ -49,10 +49,9 @@ const getHeaders = () => ({
   'Content-Type': 'application/json'
 });
 
-// ADDED: The fetch pattern ready for your future Django endpoint
+// endpoint
 const fetchUsers = async () => {
   try {
-    // Note: You will need to create this path in Django urls.py and views.py
     const response = await fetch(`${API_BASE_URL}/users/`, {
       headers: getHeaders()
     });
@@ -66,23 +65,12 @@ const fetchUsers = async () => {
         status: user.status || 'Enrolled'
       }));
     } else {
-      loadMockData(); // Fallback if endpoint returns 404
+      loadMockData(); // fallback if endpoint returns 404
     }
   } catch (error) {
     console.warn("Backend /users/ endpoint not ready. Using mock data.");
-    loadMockData(); // Fallback if network fails
+    loadMockData(); // fallback if network fails
   }
-};
-
-// Extracted mock data so the UI functions perfectly while you code the backend
-const loadMockData = () => {
-  allUsers.value = [
-    { id: 'USR-802', username: 'johndoe', name: 'John Doe', status: 'Active' },
-    { id: 'USR-441', username: 'sarahsmith', name: 'Sarah Smith', status: 'Active' },
-    { id: 'USR-909', username: 'michaellee', name: 'Michael Lee', status: 'Terminated' },
-    { id: 'USR-211', username: 'emmawatson', name: 'Emma Watson', status: 'Completed' },
-    { id: 'USR-345', username: 'davidcarter', name: 'David Carter', status: 'Not Taken' },
-  ];
 };
 
 onMounted(() => {

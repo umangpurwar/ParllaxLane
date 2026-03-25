@@ -20,7 +20,7 @@
                 PARALLAXLANE
             </div>
             <div class="hidden md:flex w-[75%] h-full items-center px-8 justify-end">
-                <router-link to="/" class="text-[9px] uppercase tracking-widest font-semibold text-gray-700 hover:text-brutal-red transition-colors pointer-events-auto">
+                <router-link to="/" class="text-[9px] uppercase tracking-normal font-semibold text-gray-700 hover:text-brutal-red transition-colors pointer-events-auto">
                     RETURN HOME
                 </router-link>
             </div>
@@ -40,56 +40,81 @@
                 </p>
             </div>
             
-            <div class="w-full md:w-[50%] lg:w-[25%] h-full flex flex-col justify-center px-8 md:px-12 pointer-events-auto bg-brutal-paper">
+            <div class="w-full md:w-[50%] h-full flex flex-col justify-center px-8 md:px-12 lg:px-0 pointer-events-auto bg-brutal-paper">
                 <h2 class="text-[2rem] font-medium tracking-tighter leading-none text-brutal-ink mb-10 md:hidden">
                     Register
                 </h2>
                 
-                <div class="flex flex-col gap-8">
-                    <div class="relative">
-                        <input 
-                            v-model="username" 
-                            type="text" 
-                            placeholder="USERNAME" 
-                            class="w-full bg-transparent border-b-2 border-brutal-border py-3 text-brutal-ink font-medium tracking-widest text-[10px] uppercase placeholder-gray-500 focus:outline-none focus:border-brutal-red transition-colors"
-                        />
-                    </div>
+                <div class="flex flex-col lg:flex-row w-full gap-8 lg:gap-0">
                     
-                    <div class="relative">
-                        <input 
-                            v-model="email" 
-                            type="email" 
-                            placeholder="EMAIL" 
-                            class="w-full bg-transparent border-b-2 border-brutal-border py-3 text-brutal-ink font-medium tracking-widest text-[10px] uppercase placeholder-gray-500 focus:outline-none focus:border-brutal-red transition-colors"
-                        />
-                    </div>
-                    
-                    <div class="relative">
-                        <input 
-                            v-model="password" 
-                            type="password" 
-                            placeholder="PASSWORD" 
-                            class="w-full bg-transparent border-b-2 border-brutal-border py-3 text-brutal-ink font-medium tracking-widest text-[10px] uppercase placeholder-gray-500 focus:outline-none focus:border-brutal-red transition-colors"
-                        />
+                    <div class="w-full lg:w-[50%] lg:px-12 flex flex-col gap-6">
+                        <div class="relative">
+                            <input 
+                                v-model="username" 
+                                type="text" 
+                                placeholder="USERNAME" 
+                                class="w-full bg-transparent border-b-2 border-brutal-border py-3 text-brutal-ink font-medium tracking-normal text-[12px] placeholder-gray-500 focus:outline-none focus:border-brutal-red transition-colors"
+                            />
+                        </div>
+                        
+                        <div class="relative">
+                            <input 
+                                v-model="email" 
+                                type="email" 
+                                placeholder="EMAIL (@pccoepune.org)" 
+                                class="w-full bg-transparent border-b-2 border-brutal-border py-3 text-brutal-ink font-medium tracking-normal text-[12px] placeholder-gray-500 focus:outline-none focus:border-brutal-red transition-colors"
+                            />
+                        </div>
+                        
+                        <div class="relative">
+                            <input 
+                                v-model="password" 
+                                type="password" 
+                                placeholder="PASSWORD" 
+                                class="w-full bg-transparent border-b-2 border-brutal-border py-3 text-brutal-ink font-medium tracking-normal text-[12px] placeholder-gray-500 focus:outline-none focus:border-brutal-red transition-colors"
+                            />
+                        </div>
+
+                        <div class="relative">
+                            <input 
+                                v-model="confirmPassword" 
+                                type="password" 
+                                placeholder="RE-ENTER PASSWORD" 
+                                class="w-full bg-transparent border-b-2 border-brutal-border py-3 text-brutal-ink font-medium tracking-normal text-[12px] placeholder-gray-500 focus:outline-none focus:border-brutal-red transition-colors"
+                            />
+                        </div>
                     </div>
 
-                    <button 
-                        @click="register" 
-                        class="mt-6 w-full bg-brutal-ink hover:bg-brutal-red text-brutal-paper py-4 text-[10px] uppercase tracking-super-wide font-bold transition-all duration-300"
-                    >
-                        Create Profile
-                    </button>
+                    <div class="w-full lg:w-[50%] lg:px-12 flex flex-col gap-6 border-t-2 border-brutal-border pt-8 lg:border-t-0 lg:pt-0">
+                        
+                      <CaptchaBox @verified="captchaVerified = $event" />
 
-                    <button 
-                        @click="$router.push('/login')" 
-                        class="mt-2 text-[9px] uppercase tracking-widest font-semibold text-gray-600 hover:text-brutal-red transition-colors text-left"
-                    >
-                        Already have an account? Log In
-                    </button>
+                        <p v-if="errorMessage" class="text-[10px] uppercase tracking-normal font-bold text-brutal-red leading-tight">
+                            {{ errorMessage }}
+                        </p>
+
+                        <div class="flex flex-col gap-4 mt-auto">
+                            <button 
+                                @click="register" 
+                                :disabled="!captchaVerified"
+                                class="w-full py-4 text-[10px] uppercase tracking-super-wide font-bold transition-all duration-300"
+                                :class="captchaVerified ? 'bg-brutal-ink hover:bg-brutal-red text-brutal-paper cursor-pointer' : 'bg-gray-300 text-gray-500 cursor-not-allowed'"
+                            >
+                                {{ captchaVerified ? 'Create Profile' : 'Verification Required' }}
+                            </button>
+
+                            <button 
+                                @click="$router.push('/login')" 
+                                class="text-[9px] uppercase tracking-normal font-semibold text-gray-600 hover:text-brutal-red transition-colors text-left"
+                            >
+                                Already have an account? Log In
+                            </button>
+                        </div>
+
+                    </div>
+
                 </div>
             </div>
-
-            <div class="hidden lg:block w-[25%] h-full"></div>
             
         </main>
 
@@ -102,17 +127,71 @@
 </template>
 
 <script setup>
-import { ref } from "vue"
+import { ref, onMounted } from "vue"
 import { useRouter } from "vue-router"
 import api from "../services/api"
+import CaptchaBox from "../components/CaptchaBox.vue"
 
 const router = useRouter()
 
 const username = ref("")
 const email = ref("")
 const password = ref("")
+const confirmPassword = ref("")
+const errorMessage = ref("")
+
+// Captcha State
+const captchaVerified = ref(false)
+const captchaRef = ref(null)
+
+
+onMounted(() => {
+  captchaRef.value?.generateCaptcha?.()
+})
+
+
+const validateForm = () => {
+  errorMessage.value = ""
+    const usernameRegex = /^[a-zA-Z0-9]+$/
+    if (!usernameRegex.test(username.value)) {
+  errorMessage.value = "Username can only contain letters and numbers (a-z, A-Z, 0-9)."
+  return false
+    }
+  if (!username.value || !email.value || !password.value || !confirmPassword.value) {
+    errorMessage.value = "All fields are required."
+    return false
+  }
+
+  // Strict domain check for @pccoepune.org
+  if (!email.value.toLowerCase().endsWith("@pccoepune.org")) {
+    errorMessage.value = "Registration is restricted to @pccoepune.org emails only."
+    return false
+  }
+
+  // Regex: At least 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/
+  
+  if (!passwordRegex.test(password.value)) {
+    errorMessage.value = "Password must be at least 8 chars, with 1 uppercase, 1 lowercase, 1 number, and 1 special character."
+    return false
+  }
+
+  if (password.value !== confirmPassword.value) {
+    errorMessage.value = "Passwords do not match."
+    return false
+  }
+
+  if (!captchaVerified.value) {
+    errorMessage.value = "Please complete the security directive."
+    return false
+  }
+
+  return true
+}
 
 const register = async () => {
+  if (!validateForm()) return
+
   try {
     await api.post("accounts/register/", {
       username: username.value,
@@ -125,7 +204,15 @@ const register = async () => {
 
   } catch (error) {
     console.error("Registration error:", error)
-    alert("Registration failed. Please try again.")
+    
+    if (error.response && error.response.data) {
+       const errors = Object.values(error.response.data).flat()
+       errorMessage.value = errors[0] || "Registration failed. Please try again."
+    } else {
+       errorMessage.value = "Registration failed. Please check your connection."
+    }
+    
+    
   }
 }
 </script>

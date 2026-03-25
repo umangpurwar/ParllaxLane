@@ -13,6 +13,14 @@
         <p class="text-[10px] uppercase tracking-widest font-semibold text-gray-500 mb-8 text-center max-w-md">
           ParallaxLane requires Fullscreen and Camera access. Leaving fullscreen, switching tabs, or opening external assistants will be logged as violations.
         </p>
+        <div class="text-center mb-6">
+        <p class="text-lg font-bold text-brutal-ink">
+          {{ exam?.title }}
+          </p>
+          <p class="text-xs text-gray-600 mt-2 max-w-md">
+          {{ exam?.description }}
+          </p>
+        </div>
         <button @click="enterSecureMode" class="bg-brutal-red text-white px-12 py-5 text-[12px] uppercase tracking-super-wide font-bold hover:bg-brutal-ink transition-colors shadow-2xl">
           Initialize Secure Mode
         </button>
@@ -120,7 +128,8 @@
                   type="radio" 
                   :name="currentQuestion.id" 
                   :value="label" 
-                  v-model="answers[currentQuestion.id]" 
+                  :checked="answers[currentQuestion.id] === label"
+                  @click.prevent="toggleAnswer(currentQuestion.id, label)"
                   class="sr-only" 
                 />
                 <div class="w-8 h-8 rounded-full border-2 flex items-center justify-center mr-6 font-bold text-sm uppercase transition-colors"
@@ -234,7 +243,7 @@ const handleExamTermination = (message = "Exam has been terminated by admin") =>
   }, 2000);
 };
 
-import { ref, onMounted, onUnmounted, nextTick, computed } from "vue"
+import { ref, onMounted, onUnmounted, nextTick, computed, watch } from "vue"
 import { useRoute, useRouter, onBeforeRouteLeave } from "vue-router" 
 import api from "../services/api"
 
@@ -260,7 +269,7 @@ let mediaStream = null
 let cameraInterval = null
 let heartbeatInterval = null
 
-// Initialize as null, we will set this AFTER the camera is allowed
+// Initialize as null,  set this AFTER the camera is allowed
 const attemptId = ref(null) 
 const violationCooldowns = {}
 
@@ -268,7 +277,7 @@ const isSecureMode = ref(false)
 let isAutoSubmitting = false
 let pendingRoute = null
 
-// ================= ROUTING LOGIC =================
+// routing logic
 onBeforeRouteLeave((to, from, next) => {
   if (isAutoSubmitting || !isSecureMode.value || showSubmitModal.value) {
     next()
@@ -296,7 +305,7 @@ const confirmLeaveAndSubmit = async () => {
   }
 }
 
-// ================= PAGINATION LOGIC =================
+// pagination
 const currentQuestionIndex = ref(0)
 const visitedQuestions = ref(new Set([0]))
 
@@ -308,6 +317,7 @@ const currentQuestion = computed(() => {
 const goToQuestion = (index) => {
   currentQuestionIndex.value = index
   visitedQuestions.value.add(index)
+  saveExamState()   // force persist
 }
 
 const nextQuestion = () => {
@@ -331,31 +341,65 @@ const getQuestionStatusClass = (questionId, index) => {
   else return 'bg-transparent border-brutal-border text-brutal-ink hover:border-brutal-ink'
 }
 
-// ================= CORE EXAM LOGIC =================
+// core logic
 
-// Step 1: Just load the data so the UI doesn't crash
+// saving the data in memory so after reloaded it does not get lost
+const saveExamState = () => {
+  const examId = route.params.id;
+
+  const state = {
+    answers: answers.value,
+    currentQuestionIndex: currentQuestionIndex.value,
+    visitedQuestions: Array.from(visitedQuestions.value),
+    timeLeft: timeLeft.value
+  };
+
+  localStorage.setItem(`exam_state_${examId}`, JSON.stringify(state));
+};
+
+
+watch(answers, saveExamState, { deep: true });
+watch(currentQuestionIndex, saveExamState);
+watch(timeLeft, saveExamState);
+
 const fetchExamData = async () => {
   try {
     const examId = route.params.id
     const res = await api.get(`exams/${examId}/`)
     exam.value = res.data?.data || res.data
-    timeLeft.value = exam.value.duration * 60
+
+    const saved = localStorage.getItem(`exam_state_${examId}`)
+
+    if (saved) {
+      const parsed = JSON.parse(saved)
+
+      answers.value = parsed.answers || {}
+      currentQuestionIndex.value = parsed.currentQuestionIndex || 0
+      visitedQuestions.value = new Set(parsed.visitedQuestions || [0])
+      timeLeft.value = parsed.timeLeft ?? exam.value.duration * 60
+    } else {
+      timeLeft.value = exam.value.duration * 60
+    }
+
   } catch (error) {
     errorMessage.value = "Failed to load exam data. Please return to dashboard."
   }
 }
 
-
 // Step 2: The User clicks "Initialize Secure Mode"
 const enterSecureMode = async () => {
   try {
-    // 1. Ask for Camera permission FIRST
+    // 1. Ask for permission first
+    console.log("STEP 1: before webcam");
     await startWebcam();
     
-    // 2. If camera is allowed, force Fullscreen
+    // 2. If permission is allowed, force Fullscreen
+  
     const docEl = document.documentElement;
     if (docEl.requestFullscreen) {
+        console.log("STEP 2: after webcam, before fullscreen");
       await docEl.requestFullscreen();
+      console.log("STEP 3: after fullscreen, before API");
     } else if (docEl.webkitRequestFullscreen) {
       await docEl.webkitRequestFullscreen();
     } else if (docEl.msRequestFullscreen) {
@@ -371,6 +415,7 @@ const enterSecureMode = async () => {
       localStorage.setItem("active_exam_id", examId);  
       window.dispatchEvent(new Event("exam-started"));
       const startRes = await api.post(`exams/${examId}/start/`);
+      console.log("STEP 4: after API");
       if (startRes.data && startRes.data.attempt_id) {
         attemptId.value = startRes.data.attempt_id;
         localStorage.setItem("attempt_id", startRes.data.attempt_id);
@@ -472,6 +517,8 @@ const submitExam = async () => {
       return;
     }
 
+    
+    localStorage.removeItem(`exam_state_${examId}`)
     const res = await api.post(`exams/${examId}/submit/`, {
       answers: answers.value
     })
@@ -491,7 +538,7 @@ const submitExam = async () => {
 }
 }
 
-// ================= SCREENSHOT =================
+// screenshot
 const captureScreenshot = () => {
   if (!videoRef.value || !attemptId.value) return;
 
@@ -512,10 +559,10 @@ const captureScreenshot = () => {
       handleExamTermination(error.response.data?.error);
     }
   });
-}; // ✅ CLOSED PROPERLY
+}; 
 
 
-// ================= VIOLATION =================
+// violation
 const logViolation = async (type) => {
   if (!isSecureMode.value) return;
 
@@ -568,16 +615,31 @@ const logViolation = async (type) => {
   }
 };
 const startWebcam = async () => {
-  // Throws an error if user clicks "Block"
-  const stream = await navigator.mediaDevices.getUserMedia({ video: true })
-  mediaStream = stream
+  // request full screen
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: {
+      displaySurface: "monitor" // force full monitor
+    },
+    audio: false
+  });
 
-  await nextTick()
-  if (videoRef.value) {
-      videoRef.value.srcObject = stream
-      await videoRef.value.play()
+  // reject if user selects tab/window
+  const track = stream.getVideoTracks()[0];
+  const settings = track.getSettings();
+
+  if (settings.displaySurface !== "monitor") {
+    track.stop();
+    throw new Error("Please select entire screen (monitor), not tab/window");
   }
-}
+
+  mediaStream = stream;
+
+  await nextTick();
+  if (videoRef.value) {
+    videoRef.value.srcObject = stream;
+    await videoRef.value.play();
+  }
+};
 
 const monitorCamera = () => {
   cameraInterval = setInterval(async () => {
@@ -615,17 +677,33 @@ const cleanup = () => {
 onMounted(() => {
   document.addEventListener('contextmenu', event => event.preventDefault());
   
-  // Only fetch the text data on mount. Do NOT start the exam attempt yet.
+  // Only fetch the text data on mount. do not start the exam attempt yet.
   fetchExamData()
   
   document.addEventListener("visibilitychange", handleTab)
   window.addEventListener("blur", handleBlur)
   document.addEventListener("keydown", handleKey)
   document.addEventListener("fullscreenchange", handleFullscreenChange)
+
+  const savedAttempt = localStorage.getItem("attempt_id")
+
+    if (savedAttempt) {
+    attemptId.value = savedAttempt
+}
 })
 
 onUnmounted(() => {
   document.removeEventListener('contextmenu', event => event.preventDefault());
   cleanup()
 })
+
+const toggleAnswer = (questionId, label) => {
+  if (answers.value[questionId] === label) {
+    delete answers.value[questionId]; // unselect
+  } else {
+    answers.value[questionId] = label; // select
+  }
+
+  saveExamState(); 
+};
 </script>

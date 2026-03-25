@@ -36,7 +36,7 @@
      <header class="h-20 flex items-center justify-between px-8 border-b border-brutal-border relative z-10 bg-brutal-paper">
         <div>
           <h1 class="text-2xl font-medium tracking-tight capitalize">Welcome, {{ adminName }}</h1>
-          <p class="text-[9px] uppercase tracking-widest font-semibold text-gray-500 mt-1">Command Center & Invigilation</p>
+          <p class="text-[9px] uppercase tracking-widest font-semibold text-gray-500 mt-1"> Invigilation Panel</p>
         </div>
         
         <div class="flex items-center gap-6">
@@ -146,7 +146,7 @@ const handleUnauthorized = () => {
   localStorage.clear();
 
   if (liveStatsInterval) {
-    clearInterval(liveStatsInterval); // 🔥 stop polling
+    clearInterval(liveStatsInterval);
   }
 
   if (router.currentRoute.value.path !== "/login") {
@@ -158,7 +158,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useRouter } from 'vue-router';
 
 
-// Modular Feature Imports
+// component Imports
 import DashboardOverview from '../components/DashboardOverview.vue';
 import CreateExam from '../components/CreateExamForm.vue';
 import ExamControl from '../components/ExamControl.vue';
@@ -225,10 +225,9 @@ const fetchExams = async () => {
     if (response.ok) {
       const data = await response.json();
       exams.value = data.map(exam => ({
-        id: exam.id,
-        title: exam.title,
-        status: exam.is_active ? 'Active' : 'Disabled',
-        date: exam.start_time ? new Date(exam.start_time).toISOString().split('T')[0] : 'No Date'
+      ...exam, 
+      status: exam.is_active === true ? 'Active' : 'Disabled',
+      date: exam.start_time ? new Date(exam.start_time).toISOString().split('T')[0] : 'No Date'
       }));
     }
   } catch (error) { console.error("Exams load failed:", error); }
@@ -236,10 +235,7 @@ const fetchExams = async () => {
 
 const activeExamsCount = computed(() => exams.value.filter(e => e.status === 'Active').length);
 
-/**
- * REFACTORED: Logic for Heartbeat detection
- * Only counts users as "live" if status is 'active' (meaning they passed the heartbeat check in Django)
- */
+// ping function for updating the live user in dashboard 
 const fetchDashboardStats = async () => {
   try {
     const examId = localStorage.getItem("active_exam_id");
@@ -279,7 +275,7 @@ onMounted(() => {
   if (storedName) adminName.value = storedName;
   fetchExams();
   fetchDashboardStats();
-  // Poll stats every 5 seconds to keep the "Live Candidate" number accurate
+  // Poll stats every 5 seconds to keep the active candidate  number accurate
   liveStatsInterval = setInterval(fetchDashboardStats, 5000);
 });
 

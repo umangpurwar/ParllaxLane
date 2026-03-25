@@ -14,7 +14,7 @@ class Exam(models.Model):
 
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
 
-    is_published = models.BooleanField(default=False)
+    is_published = models.BooleanField(default=True)
 
     # NEW
     is_active = models.BooleanField(default=False)

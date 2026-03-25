@@ -1,18 +1,16 @@
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-
-from django.http import HttpResponse
-
-from exams.models import Exam, ExamAttempt
+from collections import defaultdict
+from exams.models import Exam, ExamAttempt, Question
 from monitoring.models import Screenshot, Violation
 
-from reportlab.platypus import SimpleDocTemplate, Paragraph
+
 from reportlab.lib.styles import getSampleStyleSheet
-from openpyxl import Workbook
 from datetime import timedelta
 from django.utils.timezone import now
 from django.utils.dateparse import parse_datetime
+from exams.serializers import ExamSerializer, ExamDetailSerializer
 
 
 # live dashboard
@@ -70,7 +68,7 @@ def live_monitor(request, exam_id):
             "fullscreen": metadata.get("fullscreen", True)
         }
 
-        # 3. BUILD PAYLOAD
+        #  PAYLOAD
         data.append({
             "username": attempt.user.username,
             "attempt_id": attempt.id,
@@ -147,7 +145,7 @@ def _user_detail_response(username, exam_id=None):
     })
 
 
-# \clear violations
+# clear violations
 @api_view(['DELETE', 'POST'])
 @permission_classes([IsAuthenticated])
 def clear_violations(request, username):
@@ -170,59 +168,13 @@ def clear_violations_exam(request, exam_id, username):
     return Response({"status": "cleared"})
 
 
-# create exam
-@api_view(['POST'])
-@permission_classes([IsAuthenticated])
-def create_exam(request):
-
-    title = request.data.get("title")
-    if not title:
-        return Response({"error": "title is required"}, status=400)
-
-    duration_raw = request.data.get("duration", 30)
-    try:
-        duration = int(duration_raw)
-    except (TypeError, ValueError):
-        return Response({"error": "duration must be an integer"}, status=400)
-    if duration <= 0:
-        return Response({"error": "duration must be > 0"}, status=400)
-
-    start_time_input = request.data.get("start_time")
-    end_time_input = request.data.get("end_time")
-
-    start_time = parse_datetime(start_time_input) if start_time_input else now()
-    if start_time_input and not start_time:
-        return Response({"error": "start_time must be ISO-8601 datetime"}, status=400)
-
-    end_time = parse_datetime(end_time_input) if end_time_input else None
-    if end_time_input and not end_time:
-        return Response({"error": "end_time must be ISO-8601 datetime"}, status=400)
-    if not end_time:
-        end_time = start_time + timedelta(minutes=duration)
-
-    exam = Exam.objects.create(
-        title=title,
-        description=request.data.get("description", ""),
-        duration=duration,
-        start_time=start_time,
-        end_time=end_time,
-        created_by=request.user
-    )
-
-    return Response({
-        "status": "created",
-        "exam_id": exam.id
-    })
-
-
 # list exam
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def list_exams(request):
-
-    exams = Exam.objects.all().values()
-
-    return Response(exams)
+    exams = Exam.objects.all()
+    serializer = ExamDetailSerializer(exams, many=True)
+    return Response(serializer.data)
 
 
 # turn exam on or off
@@ -242,62 +194,6 @@ def toggle_exam(request, exam_id):
     return Response({"status": "toggled"})
 
 
-# pdf
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def export_pdf(request, exam_id):
-
-    attempts = ExamAttempt.objects.filter(exam_id=exam_id)
-
-    response = HttpResponse(content_type='application/pdf')
-    response['Content-Disposition'] = 'attachment; filename="report.pdf"'
-
-    doc = SimpleDocTemplate(response)
-    styles = getSampleStyleSheet()
-
-    elements = []
-
-    for a in attempts:
-        text = f"""
-        User: {a.user} <br/>
-        Violations: {a.total_violations} <br/>
-        Risk: {a.risk_score} <br/>
-        Status: {a.status} <br/><br/>
-        """
-        elements.append(Paragraph(text, styles["Normal"]))
-
-    doc.build(elements)
-    return response
-
-
-# excel
-@api_view(['GET'])
-@permission_classes([IsAuthenticated])
-def export_excel(request, exam_id):
-
-    attempts = ExamAttempt.objects.filter(exam_id=exam_id)
-
-    wb = Workbook()
-    ws = wb.active
-
-    ws.append(["User", "Violations", "Risk", "Status"])
-
-    for a in attempts:
-        ws.append([
-            str(a.user),
-            a.total_violations,
-            a.risk_score,
-            a.status
-        ])
-
-    response = HttpResponse(
-        content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-    response['Content-Disposition'] = 'attachment; filename="report.xlsx"'
-
-    wb.save(response)
-    return response
-
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
@@ -307,13 +203,16 @@ def list_all_users(request):
     users = User.objects.all().values('id', 'username', 'first_name', 'last_name')
     return Response(list(users))
 
-@api_view(['POST'])
+from django.shortcuts import get_object_or_404
+
+@api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
-def update_exam_time(request, exam_id):
-    try:
-        exam = Exam.objects.get(id=exam_id)
-    except Exam.DoesNotExist:
-        return Response({"error": "Exam not found"}, status=404)
+def update_exam(request, exam_id):
+    exam = get_object_or_404(Exam, id=exam_id)
+
+    exam.title = request.data.get("title", exam.title)
+    exam.description = request.data.get("description", exam.description)
+    exam.duration = request.data.get("duration", exam.duration)
 
     start_time_input = request.data.get("start_time")
     end_time_input = request.data.get("end_time")
@@ -332,4 +231,86 @@ def update_exam_time(request, exam_id):
 
     exam.save()
 
+# 1. DELETE OLD QUESTIONS FIRST
+    exam.questions.all().delete()
+
+# 2. CREATE NEW QUESTIONS
+    for q in request.data.get("questions", []):
+        Question.objects.create(
+        exam=exam,
+        text=q.get("text"),
+        option_a=q.get("option_a"),
+        option_b=q.get("option_b"),
+        option_c=q.get("option_c"),
+        option_d=q.get("option_d"),
+        correct_answer=q.get("correct_answer"),
+    )
+
     return Response({"status": "updated"})
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def create_exam(request):
+    serializer = ExamSerializer(data=request.data)
+
+    if serializer.is_valid():
+        exam = serializer.save(created_by=request.user)
+
+        return Response({
+            "status": "created",
+            "exam_id": exam.id
+        })
+
+    return Response(serializer.errors, status=400)
+
+@api_view(['DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_exam(request, exam_id):
+    exam = get_object_or_404(Exam, id=exam_id)
+    exam.delete()
+
+    return Response({"status": "deleted"})
+
+@api_view(['GET'])
+def exam_qa(request, exam_id):
+    questions = Question.objects.filter(exam_id=exam_id)
+
+    data = []
+    for q in questions:
+        data.append({
+            "id": q.id,
+            "text": q.text,
+            "option_a": q.option_a,
+            "option_b": q.option_b,
+            "option_c": q.option_c,
+            "option_d": q.option_d,
+            "correct_answer": q.correct_answer
+        })
+
+    return Response(data)
+
+
+
+@api_view(['GET'])
+def exam_results(request, exam_id):
+    attempts = ExamAttempt.objects.filter(exam_id=exam_id).select_related('user')
+
+    user_data = defaultdict(list)
+
+    for a in attempts:
+        user_data[a.user.username].append(a)
+
+    data = []
+
+    for username, attempts_list in user_data.items():
+        latest = attempts_list[-1]
+
+        data.append({
+            "username": username,
+            "attempts": len(attempts_list),
+            "score": latest.score,
+            "start_time": latest.start_time,
+            "end_time": latest.end_time,
+        })
+
+    return Response(data)

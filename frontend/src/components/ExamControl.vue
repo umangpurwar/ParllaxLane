@@ -24,17 +24,31 @@
         </div>
         
         <div class="flex flex-col md:flex-row items-start md:items-center justify-between mt-4 border-t border-brutal-border/30 pt-6 gap-4">
-          <div class="flex items-center gap-4">
-            <label class="text-[9px] uppercase font-bold text-gray-500 tracking-widest">Postpone To:</label>
-            <input 
-              type="date" 
-              v-model="exam.date" 
-              @change="updateExamTime(exam)"
-              class="border-b border-brutal-border text-sm focus:outline-none focus:border-brutal-red bg-transparent py-1 font-medium text-brutal-ink">
-          </div>
-          <button @click="toggleExamStatus(exam)" class="px-6 py-3 w-full md:w-auto border border-brutal-ink text-brutal-ink text-[10px] uppercase tracking-widest font-bold hover:bg-brutal-ink hover:text-white transition-colors">
+               <!-- BUTTON GROUP -->
+                <div class="flex gap-2 w-full md:w-auto">
+    
+             <!-- EDIT BUTTON -->
+            <button 
+            @click="editExam(exam)"
+              class="px-6 py-3 w-full md:w-auto border border-brutal-ink text-brutal-ink text-[10px] uppercase tracking-widest font-bold hover:bg-brutal-ink hover:text-white transition-colors">
+              Edit
+              </button>
+
+            <!-- DELETE BUTTON -->
+            <button 
+              @click="deleteExam(exam)"
+              class="px-6 py-3 w-full md:w-auto border border-brutal-ink text-brutal-ink text-[10px] uppercase tracking-widest font-bold hover:bg-brutal-red hover:text-white transition-colors">
+                Delete
+              </button>
+
+            <!-- TOGGLE BUTTON -->
+            <button 
+             @click="toggleExamStatus(exam)" 
+            class="px-6 py-3 w-full md:w-auto border border-brutal-ink text-brutal-ink text-[10px] uppercase tracking-widest font-bold hover:bg-brutal-ink hover:text-white transition-colors">
             {{ exam.status === 'Active' ? 'Disable Exam' : 'Enable Exam' }}
           </button>
+
+          </div>
         </div>
       </div>
     </div>
@@ -42,7 +56,6 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
 
 const props = defineProps({
   exams: {
@@ -50,7 +63,7 @@ const props = defineProps({
     required: true
   }
 });
-defineEmits(['change-tab']);
+const emit = defineEmits(['change-tab']);
 
 const API_BASE_URL = 'http://localhost:8000/api/admin';
 
@@ -59,19 +72,47 @@ const getHeaders = () => ({
   'Content-Type': 'application/json'
 });
 
+const editExam = (exam) => {
+  // store exam to edit
+  localStorage.setItem("edit_exam", JSON.stringify(exam));
+
+  // open form
+  emit('change-tab', 'create_exam');
+};
+
+const deleteExam = async (exam) => {
+  const confirmDelete = confirm(`Delete exam "${exam.title}"?`);
+  if (!confirmDelete) return;
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/exam/${exam.id}/delete/`, {
+      method: 'DELETE',
+      headers: getHeaders()
+    });
+
+    if (response.ok) {
+      emit('change-tab', 'exams')
+    } else {
+      console.error("Delete failed");
+    }
+  } catch (e) {
+    console.error("Delete error:", e);
+  }
+};
+
 const toggleExamStatus = async (exam) => {
   try {
-    // 1. Call DRF backend
     const response = await fetch(`${API_BASE_URL}/exam/${exam.id}/toggle/`, {
       method: 'POST',
       headers: getHeaders()
     });
 
     if (response.ok) {
-      // 2. Update UI only if backend successfully toggled it
-      exam.status = exam.status === 'Active' ? 'Disabled' : 'Active';
+      // ✅ ONLY update from backend truth
+      exam.is_active = !exam.is_active;
+      exam.status = exam.is_active ? 'Active' : 'Disabled';
     } else {
-      console.error("Failed to toggle exam status on server.");
+      console.error("Toggle failed");
     }
   } catch (error) {
     console.error("Network error:", error);
@@ -80,12 +121,12 @@ const toggleExamStatus = async (exam) => {
 
 const updateExamTime = async (exam) => {
   try {
-    await fetch(`${API_BASE_URL}/exam/${exam.id}/update-time/`, {
-      method: 'POST',
+    await fetch(`${API_BASE_URL}/exam/${exam.id}/update/`, {
+      method: 'PATCH',
       headers: getHeaders(),
       body: JSON.stringify({
-        start_time: exam.date + "T00:00:00",
-        end_time: exam.date + "T23:59:00"
+      start_time: new Date(exam.date + "T00:00").toISOString(),
+      end_time: new Date(exam.date + "T23:59").toISOString()
       })
     });
   } catch (e) {

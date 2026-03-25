@@ -19,11 +19,11 @@
             <!-- Header -->
             <header class="absolute top-0 left-0 w-full h-[12%] flex z-20">
                 <div class="w-[25%] h-full flex items-center justify-center font-bold tracking-[0.2em] text-[13px] text-black">PARALLAXLANE</div>
-                <div class="w-[25%] h-full flex items-center px-8 text-[9px] uppercase tracking-widest font-semibold text-gray-700">Abilities</div>
+                <div class="w-[25%] h-full flex items-center px-8 text-[9px] uppercase tracking-widest font-semibold text-gray-700"></div>
                 <div class="w-[50%] h-full flex items-center px-8 justify-between text-[9px] uppercase tracking-widest font-semibold text-gray-700">
-                    <!-- Navigates to your RegisterView -->
+                    <!-- Navigates to  RegisterView -->
                     <router-link to="/register" class="hover:text-black transition-colors pointer-events-auto">REGISTER</router-link>
-                    <!-- Navigates to your LoginView -->
+                    <!-- Navigates to  LoginView -->
                     <router-link to="/login" class="hover:text-black transition-colors pointer-events-auto">LOG IN</router-link>
                 </div>
             </header>
@@ -42,9 +42,7 @@
                     </h1>
                 </div>
 
-                <div class="absolute top-[65%] right-8 transform -translate-y-[150%] scale-[0.4] origin-right pointer-events-auto text-[9px] uppercase tracking-[0.15em] font-semibold text-gray-700">
-                    Scroll Down
-                </div>
+                
 
                 <div class="absolute top-[65%] left-[50%] w-[50%] h-[35%] flex items-center px-12 pointer-events-auto">
                     <p class="text-[1.15rem] md:text-[1.25rem] lg:text-[1.4rem] font-medium tracking-tight leading-[1.3] text-[#333] max-w-lg">
@@ -52,7 +50,7 @@
                     </p>
                 </div>
 
-                <!-- Copyright Signature (Bottom Right) -->
+                
                 <div class="absolute bottom-6 right-8 pointer-events-auto text-[9px] uppercase tracking-[0.2em] font-bold text-gray-400">
                     &copy; UMNG
                 </div>

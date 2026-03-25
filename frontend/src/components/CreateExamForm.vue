@@ -43,10 +43,34 @@
 
       <div class="flex flex-col gap-6 border-b border-brutal-border/30 pb-8">
         <div class="flex justify-between items-center">
-          <h3 class="text-[10px] uppercase tracking-super-wide font-bold text-brutal-red">2. Questionnaire ({{ formData.questions.length }})</h3>
-          <button type="button" @click="addQuestion" class="px-3 py-1 bg-brutal-ink text-white text-[9px] uppercase tracking-widest font-bold hover:bg-gray-800">
-            + Add Question
+  <h3 class="text-[10px] uppercase tracking-super-wide font-bold text-brutal-red">
+    2. Questionnaire ({{ formData.questions.length }})
+  </h3>
+
+        <div class="flex gap-2 items-center">
+
+            <!-- Input (same brutal style & size) -->
+            <input
+              v-model="questionCount"
+              type="text"
+              placeholder="1"
+              class="w-[80px] bg-white border-2 border-brutal-ink py-1 text-center text-brutal-ink font-bold tracking-widest text-[10px] focus:outline-none"
+              />
+
+            <!-- Button -->
+            <button
+            type="button"
+            @click="handleAddQuestion"
+            :disabled="isAddDisabled"
+            class="px-3 py-1 border-2 border-brutal-ink text-[9px] uppercase tracking-widest font-bold transition-all"
+            :class="isAddDisabled 
+            ? 'bg-gray-300 text-gray-500 border-gray-300 cursor-not-allowed' 
+            : 'bg-brutal-ink text-white hover:bg-gray-800 cursor-pointer'"
+            >
+             + Add Question
           </button>
+
+          </div>
         </div>
 
         <div v-for="(q, index) in formData.questions" :key="index" class="bg-gray-50 p-6 border border-brutal-border relative">
@@ -81,10 +105,10 @@
               <label class="text-[9px] uppercase tracking-widest font-bold text-brutal-ink">Correct Answer</label>
               <select v-model="q.correct_answer" required class="w-full p-2 border border-brutal-border text-sm bg-white focus:outline-none focus:border-brutal-red">
                 <option disabled value="">Select the correct option...</option>
-                <option :value="q.option_a">Option A</option>
-                <option :value="q.option_b">Option B</option>
-                <option :value="q.option_c">Option C</option>
-                <option :value="q.option_d">Option D</option>
+                <option value="a">Option A</option>
+                <option value="b">Option B</option>
+                <option value="c">Option C</option>
+                <option value="d">Option D</option>
               </select>
             </div>
           </div>
@@ -102,7 +126,9 @@
 </template>
 
 <script setup>
-import { ref } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+const isEditMode = ref(false);
+const editExamId = ref(null);
 
 const emit = defineEmits(['change-tab']);
 const API_BASE_URL = 'http://localhost:8000/api/admin';
@@ -120,6 +146,22 @@ const formData = ref({
     { text: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_answer: '' }
   ]
 });
+
+const questionCount = ref("1")
+
+const isAddDisabled = computed(() => {
+  const num = parseInt(questionCount.value)
+  return isNaN(num) || num <= 0
+})
+
+const handleAddQuestion = () => {
+  const count = parseInt(questionCount.value)
+  if (!count || count <= 0) return
+
+  for (let i = 0; i < count; i++) {
+    addQuestion()
+  }
+}
 
 const addQuestion = () => {
   formData.value.questions.push({ text: '', option_a: '', option_b: '', option_c: '', option_d: '', correct_answer: '' });
@@ -139,26 +181,97 @@ const submitExam = async () => {
   errorMessage.value = '';
 
   try {
-    const payload = { ...formData.value };
-    if (payload.start_time) payload.start_time = new Date(payload.start_time).toISOString();
-    if (payload.end_time) payload.end_time = new Date(payload.end_time).toISOString();
+    //Prepare payload
+    const payload = JSON.parse(JSON.stringify(formData.value));
 
-    const response = await fetch(`${API_BASE_URL}/exam/create/`, {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify(payload)
-    });
-
-    if (response.ok) {
-      emit('change-tab', 'exams');
-    } else {
-      const data = await response.json();
-      errorMessage.value = data.error || 'Failed to create exam.';
+    if (payload.start_time) {
+      payload.start_time = new Date(payload.start_time).toISOString();
     }
+
+    if (payload.end_time) {
+      payload.end_time = new Date(payload.end_time).toISOString();
+    }
+
+    //  VALIDATE QUESTIONS
+    const hasInvalidQuestion = payload.questions.some(q =>
+      !q.text ||
+      !q.option_a ||
+      !q.option_b ||
+      !q.option_c ||
+      !q.option_d ||
+      !q.correct_answer
+    );
+
+    if (hasInvalidQuestion) {
+      errorMessage.value = "Fill all question fields properly";
+      isSubmitting.value = false;
+      return;
+    }
+
+    // DEBUG PAYLOAD (IMPORTANT)
+    console.log("PAYLOAD SENT:", payload);
+
+    // SEND REQUEST
+const url = isEditMode.value
+  ? `${API_BASE_URL}/exam/${editExamId.value}/update/`
+  : `${API_BASE_URL}/exam/create/`;
+
+const method = isEditMode.value ? 'PATCH' : 'POST';
+
+const response = await fetch(url, {
+  method,
+  headers: getHeaders(),
+  body: JSON.stringify(payload)
+});
+
+    //  READ RESPONSE ALWAYS
+    const data = await response.json();
+
+    console.log("BACKEND RESPONSE:", data);
+
+    // HANDLE RESPONSE
+    if (!response.ok) {
+      errorMessage.value = JSON.stringify(data);
+      return;
+    }
+
+    // SUCCESS
+
+     isEditMode.value = false;
+     editExamId.value = null;
+    
+    emit('change-tab', 'exams');
+
   } catch (error) {
+    console.error("NETWORK ERROR:", error);
     errorMessage.value = 'Network error occurred.';
   } finally {
     isSubmitting.value = false;
   }
 };
+
+onMounted(() => {
+  const editData = localStorage.getItem("edit_exam");
+
+  if (editData) {
+    const exam = JSON.parse(editData);
+
+    isEditMode.value = true;
+    editExamId.value = exam.id;
+
+    formData.value.title = exam.title;
+    formData.value.description = exam.description;
+    formData.value.duration = exam.duration;
+
+    formData.value.start_time = exam.start_time ? exam.start_time.slice(0, 16): '';
+    formData.value.end_time = exam.end_time ? exam.end_time.slice(0, 16): '';
+
+    formData.value.questions = [];
+    if (exam.questions && exam.questions.length) {
+      formData.value.questions = JSON.parse(JSON.stringify(exam.questions));
+    }
+
+    localStorage.removeItem("edit_exam");
+  }
+});
 </script>

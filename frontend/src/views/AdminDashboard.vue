@@ -91,7 +91,7 @@
           <div>
             <h2 class="text-2xl font-medium tracking-tight text-brutal-ink">{{ selectedUser.name }} <span class="text-sm font-normal text-gray-500 ml-2">ID: {{ selectedUser.id || selectedUser.username }}</span></h2>
             <p class="text-[9px] uppercase tracking-widest font-semibold text-brutal-red mt-1">
-              Risk Score: {{ selectedUser.riskScore || 0 }} • Total Violations: {{ selectedUser.totalViolations || 0 }}
+             • Total Violations: {{ selectedUser.totalViolations || 0 }}
             </p>
           </div>
           <button @click="closeModal" class="w-8 h-8 flex items-center justify-center border border-brutal-border hover:bg-brutal-ink hover:text-white transition-colors">X</button>
@@ -311,6 +311,8 @@ const openModal = async (user) => {
     if (response.ok) {
       const data = await response.json();
       selectedUser.value.breakdown = data.breakdown || {};
+      selectedUser.value.totalViolations = Object.values(selectedUser.value.breakdown)
+      .reduce((sum, val) => sum + Number(val || 0), 0);
       selectedUser.value.screenshots = (data.screenshots || []).map(shot => ({
         id: shot.id, type: shot.violation_type || 'SYSTEM_FLAG',
         time: new Date(shot.timestamp).toLocaleTimeString(),
@@ -328,7 +330,6 @@ const clearUserViolations = async (username) => {
     const response = await fetch(`${API_BASE_URL}/user/${username}/clear/`, { method: 'POST', headers: getHeaders() });
     if (response.ok) {
       selectedUser.value.totalViolations = 0;
-      selectedUser.value.riskScore = 0;
       alert("Cleared.");
     }
   } catch (e) { console.error("Clear failed:", e); }

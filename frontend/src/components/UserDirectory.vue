@@ -6,7 +6,7 @@
         <p class="text-[9px] uppercase tracking-widest font-semibold text-gray-500 mt-1">Manage and search enrolled candidates</p>
       </div>
       <div class="relative w-full md:w-auto">
-        <input type="text" v-model="searchQuery" placeholder="SEARCH USERS..." class="w-full md:w-64 bg-white border border-brutal-border px-4 py-3 text-[10px] text-brutal-ink uppercase tracking-widest focus:outline-none focus:border-brutal-red placeholder-gray-400" />
+        <input type="text" v-model="searchQuery" placeholder="Search users..." class="w-full md:w-64 bg-white border border-brutal-border px-4 py-3 text-[10px] text-brutal-ink tracking-widest focus:outline-none focus:border-brutal-red placeholder-gray-400"/>
       </div>
     </div>
 
@@ -79,11 +79,15 @@ onMounted(() => {
 
 const filteredUsers = computed(() => {
   if (!searchQuery.value) return allUsers.value;
+
   const q = searchQuery.value.toLowerCase();
-  return allUsers.value.filter(u => 
-    u.name.toLowerCase().includes(q) || 
-    u.id.toLowerCase().includes(q) ||
-    (u.username && u.username.toLowerCase().includes(q)) // Added username search support
-  );
+
+  return allUsers.value.filter(u => {
+    return (
+      (u.name && u.name.toLowerCase().includes(q)) ||
+      (u.id && String(u.id).toLowerCase().includes(q)) ||  
+      (u.username && u.username.toLowerCase().includes(q))
+    );
+  });
 });
 </script>

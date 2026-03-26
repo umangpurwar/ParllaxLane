@@ -16,7 +16,6 @@ class Exam(models.Model):
 
     is_published = models.BooleanField(default=True)
 
-    # NEW
     is_active = models.BooleanField(default=False)
     violation_limit = models.IntegerField(default=5)
     auto_submit_on_violation = models.BooleanField(default=True)

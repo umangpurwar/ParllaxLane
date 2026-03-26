@@ -3,7 +3,7 @@
     
     <div class="flex justify-between items-center">
       <span class="text-[9px] uppercase tracking-widest font-bold text-gray-500">
-        Enter Captcha
+        Captcha
       </span>
       <button @click="generateCaptcha" class="text-[10px] text-brutal-ink hover:text-brutal-red font-bold transition-colors">
         ↻ REFRESH
@@ -21,7 +21,7 @@
         v-model="captchaInput"
         @input="verifyCaptcha"
         type="text"
-        placeholder="ENTER DIRECTIVE"
+        placeholder="enter here"
         class="w-full bg-white border-2 border-brutal-border py-2 px-3 text-center text-brutal-ink font-bold tracking-widest text-[12px] placeholder-gray-400 focus:outline-none focus:border-brutal-ink transition-colors pr-10"
       />
 

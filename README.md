@@ -1,4 +1,4 @@
-# ParallaxLane v1.2
+# ParallaxLane v1.3.2
 
 ### Web-Based Online Examination and Proctoring System
 

@@ -14,6 +14,14 @@ class Exam(models.Model):
 
     created_by = models.ForeignKey(User, on_delete=models.CASCADE)
 
+
+    organisation = models.ForeignKey(
+        'organisations.Organisation',
+        on_delete=models.CASCADE,
+        related_name='exams',
+        null=False
+    )
+
     is_published = models.BooleanField(default=True)
 
     is_active = models.BooleanField(default=False)
@@ -43,7 +51,7 @@ class Question(models.Model):
 
 class ExamAttempt(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    exam = models.ForeignKey(Exam, on_delete=models.CASCADE)
+    exam = models.ForeignKey(Exam, on_delete=models.CASCADE, db_index=True)
 
     start_time = models.DateTimeField(auto_now_add=True)
     end_time = models.DateTimeField(null=True, blank=True)

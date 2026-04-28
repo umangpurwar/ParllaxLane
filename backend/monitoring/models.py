@@ -20,9 +20,9 @@ class Violation(models.Model):
 
 
 class Screenshot(models.Model):
-    attempt = models.ForeignKey(ExamAttempt, on_delete=models.CASCADE)
+    attempt = models.ForeignKey(ExamAttempt, on_delete=models.CASCADE, db_index=True)
 
-    image = models.TextField()
+    image = models.URLField()
     timestamp = models.DateTimeField(auto_now_add=True)
 
     flagged = models.BooleanField(default=False)

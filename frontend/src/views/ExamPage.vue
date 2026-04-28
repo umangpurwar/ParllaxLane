@@ -549,18 +549,18 @@ const captureScreenshot = () => {
   const ctx = canvas.getContext("2d");
   ctx.drawImage(videoRef.value, 0, 0);
 
-  const image = canvas.toDataURL("image/png");
+canvas.toBlob(async (blob) => {
+  const formData = new FormData();
+  formData.append("attempt_id", attemptId.value);
+  formData.append("image", blob, "screenshot.png");
 
-  api.post("monitoring/screenshot/", {
-    attempt_id: attemptId.value,
-    image
-  }).catch((error) => {
-    if (error.response?.status === 403) {
-      handleExamTermination(error.response.data?.error);
+  await api.post("monitoring/screenshot/", formData, {
+    headers: {
+      "Content-Type": "multipart/form-data"
     }
   });
-}; 
-
+}, "image/png", 0.6);
+};
 
 // violation
 const logViolation = async (type) => {

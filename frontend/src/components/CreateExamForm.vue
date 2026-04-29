@@ -127,11 +127,12 @@
 
 <script setup>
 import { ref, computed, onMounted } from 'vue';
+import api from '@/services/api';
 const isEditMode = ref(false);
 const editExamId = ref(null);
 
 const emit = defineEmits(['change-tab']);
-const API_BASE_URL = 'http://localhost:8000/api/admin';
+
 
 const isSubmitting = ref(false);
 const errorMessage = ref('');
@@ -181,7 +182,7 @@ const submitExam = async () => {
   errorMessage.value = '';
 
   try {
-    //Prepare payload
+    // Prepare payload
     const payload = JSON.parse(JSON.stringify(formData.value));
 
     if (payload.start_time) {
@@ -192,7 +193,7 @@ const submitExam = async () => {
       payload.end_time = new Date(payload.end_time).toISOString();
     }
 
-    //  VALIDATE QUESTIONS
+    // VALIDATE QUESTIONS (Using the UI format)
     const hasInvalidQuestion = payload.questions.some(q =>
       !q.text ||
       !q.option_a ||
@@ -208,23 +209,53 @@ const submitExam = async () => {
       return;
     }
 
+    // --- NEW FORMAT TRANSFORMATION ---
+    // Safely transforms the UI format into the new backend schema
+    payload.questions = payload.questions.map(q => {
+      // Setup default extensible structure for future question types
+      const type = q.question_type || "mcq"; 
+      
+      let formattedQuestion = {
+        text: q.text,
+        question_type: type,
+        points: 1, // Defaulting to 1 point as requested
+      };
+
+      if (type === "mcq") {
+        formattedQuestion.options = [
+          { text: q.option_a, is_correct: q.correct_answer === 'a' },
+          { text: q.option_b, is_correct: q.correct_answer === 'b' },
+          { text: q.option_c, is_correct: q.correct_answer === 'c' },
+          { text: q.option_d, is_correct: q.correct_answer === 'd' }
+        ];
+      } else if (type === "short_answer") {
+        // Future Support Example
+        // formattedQuestion.correct_text_answer = q.correct_text_answer;
+      } else if (type === "file_upload") {
+        // Future Support Example
+      }
+
+      return formattedQuestion;
+    });
+    // --- END TRANSFORMATION ---
+
     // DEBUG PAYLOAD (IMPORTANT)
     console.log("PAYLOAD SENT:", payload);
 
     // SEND REQUEST
-const url = isEditMode.value
-  ? `${API_BASE_URL}/exam/${editExamId.value}/update/`
-  : `${API_BASE_URL}/exam/create/`;
+    const url = isEditMode.value
+      ? `${API_BASE_URL}/exam/${editExamId.value}/update/`
+      : `${API_BASE_URL}/exam/create/`;
 
-const method = isEditMode.value ? 'PATCH' : 'POST';
+    const method = isEditMode.value ? 'PATCH' : 'POST';
 
-const response = await fetch(url, {
-  method,
-  headers: getHeaders(),
-  body: JSON.stringify(payload)
-});
+    const response = await fetch(url, {
+      method,
+      headers: getHeaders(),
+      body: JSON.stringify(payload)
+    });
 
-    //  READ RESPONSE ALWAYS
+    // READ RESPONSE ALWAYS
     const data = await response.json();
 
     console.log("BACKEND RESPONSE:", data);
@@ -236,9 +267,8 @@ const response = await fetch(url, {
     }
 
     // SUCCESS
-
-     isEditMode.value = false;
-     editExamId.value = null;
+    isEditMode.value = false;
+    editExamId.value = null;
     
     emit('change-tab', 'exams');
 
@@ -268,7 +298,26 @@ onMounted(() => {
 
     formData.value.questions = [];
     if (exam.questions && exam.questions.length) {
-      formData.value.questions = JSON.parse(JSON.stringify(exam.questions));
+      formData.value.questions = exam.questions.map(q => {
+        // Fallback backward-compatibility: 
+        // If the backend returns the NEW format, seamlessly convert it back to the UI format.
+        if (q.question_type === 'mcq' && q.options) {
+          const correctIdx = q.options.findIndex(o => o.is_correct);
+          const correctLetter = ['a', 'b', 'c', 'd'][correctIdx] || '';
+          
+          return {
+            text: q.text || '',
+            option_a: q.options[0]?.text || '',
+            option_b: q.options[1]?.text || '',
+            option_c: q.options[2]?.text || '',
+            option_d: q.options[3]?.text || '',
+            correct_answer: correctLetter
+          };
+        }
+        
+        // Use existing structure if it's already using old fields
+        return { ...q };
+      });
     }
 
     localStorage.removeItem("edit_exam");

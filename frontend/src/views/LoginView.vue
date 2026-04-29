@@ -151,23 +151,32 @@ const login = async () => {
       password: password.value
     })
 
+    // Tokens
     localStorage.setItem("access_token", response.data.access)
     if (response.data.refresh) {
       localStorage.setItem("refresh_token", response.data.refresh)
     }
-    
+
+    //  NEW: Org context (IMPORTANT)
+    localStorage.setItem("org_role", response.data.org_role)
+    localStorage.setItem("org_slug", response.data.org_slug)
+
+    // Optional
     localStorage.setItem("username", username.value)
-    localStorage.setItem("is_admin", String(response.data.is_admin))
+
+    // REMOVE old admin logic
+    localStorage.removeItem("is_admin")
     localStorage.removeItem("token")
-    
-    if (response.data.is_admin) {
+
+    // NEW role-based routing
+    if (response.data.org_role === "owner" || response.data.org_role === "admin") {
       router.push("/admin")
     } else {
       router.push("/dashboard")
     }
+
   } catch (error) {
     errorMessage.value = "Login failed. Please check your credentials and try again."
- 
     console.error(error)
   }
 }

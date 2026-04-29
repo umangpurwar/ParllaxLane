@@ -56,6 +56,7 @@
 </template>
 
 <script setup>
+import api from '@/services/api';
 
 const props = defineProps({
   exams: {
@@ -64,13 +65,6 @@ const props = defineProps({
   }
 });
 const emit = defineEmits(['change-tab']);
-
-const API_BASE_URL = 'http://localhost:8000/api/admin';
-
-const getHeaders = () => ({
-  'Authorization': `Bearer ${localStorage.getItem("access_token")}`,
-  'Content-Type': 'application/json'
-});
 
 const editExam = (exam) => {
   // store exam to edit
@@ -85,16 +79,9 @@ const deleteExam = async (exam) => {
   if (!confirmDelete) return;
 
   try {
-    const response = await fetch(`${API_BASE_URL}/exam/${exam.id}/delete/`, {
-      method: 'DELETE',
-      headers: getHeaders()
-    });
-
-    if (response.ok) {
-      emit('change-tab', 'exams')
-    } else {
-      console.error("Delete failed");
-    }
+    // Axios throws an error for non-2xx responses, so resolving means success
+    await api.delete(`admin/exam/${exam.id}/delete/`);
+    emit('change-tab', 'exams');
   } catch (e) {
     console.error("Delete error:", e);
   }
@@ -102,18 +89,10 @@ const deleteExam = async (exam) => {
 
 const toggleExamStatus = async (exam) => {
   try {
-    const response = await fetch(`${API_BASE_URL}/exam/${exam.id}/toggle/`, {
-      method: 'POST',
-      headers: getHeaders()
-    });
-
-    if (response.ok) {
-      // ✅ ONLY update from backend truth
-      exam.is_active = !exam.is_active;
-      exam.status = exam.is_active ? 'Active' : 'Disabled';
-    } else {
-      console.error("Toggle failed");
-    }
+    await api.post(`admin/exam/${exam.id}/toggle/`);
+    //  ONLY update from backend truth
+    exam.is_active = !exam.is_active;
+    exam.status = exam.is_active ? 'Active' : 'Disabled';
   } catch (error) {
     console.error("Network error:", error);
   }
@@ -121,13 +100,9 @@ const toggleExamStatus = async (exam) => {
 
 const updateExamTime = async (exam) => {
   try {
-    await fetch(`${API_BASE_URL}/exam/${exam.id}/update/`, {
-      method: 'PATCH',
-      headers: getHeaders(),
-      body: JSON.stringify({
+    await api.patch(`admin/exam/${exam.id}/update/`, {
       start_time: new Date(exam.date + "T00:00").toISOString(),
       end_time: new Date(exam.date + "T23:59").toISOString()
-      })
     });
   } catch (e) {
     console.error("Update time failed:", e);

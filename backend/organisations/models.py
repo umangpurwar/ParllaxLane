@@ -76,3 +76,19 @@ class OrganisationMember(models.Model):
 
     def __str__(self):
         return f"{self.user} @ {self.organisation} ({self.role})"
+    
+class OrganisationInvite(models.Model):
+    organisation = models.ForeignKey(
+        Organisation,
+        on_delete=models.CASCADE,
+        related_name="invites"
+    )
+    email = models.EmailField()
+    role = models.CharField(max_length=20, default="candidate")
+    token = models.CharField(max_length=100, unique=True)
+    accepted = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.email} -> {self.organisation}"

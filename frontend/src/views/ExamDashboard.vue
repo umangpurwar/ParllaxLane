@@ -18,6 +18,23 @@
                 STUDENT DASHBOARD
             </div>
             <div class="w-[35%] h-full flex items-center px-8 justify-end">
+                
+                <div v-if="currentOrg" class="flex items-center gap-2 mr-6 border-r border-brutal-border/50 pr-6">
+                    <span class="text-[9px] uppercase tracking-widest font-bold text-brutal-red">
+                        {{ currentOrg }}
+                    </span>
+                    <select v-if="organisations.length > 1" 
+                            @change="switchOrganisation" 
+                            :disabled="isSwitching"
+                            class="bg-transparent border border-brutal-border text-[9px] uppercase tracking-widest font-bold text-gray-700 py-1 px-2 focus:outline-none cursor-pointer hover:border-brutal-ink transition-colors"
+                            :class="{'opacity-50 cursor-wait': isSwitching}">
+                        <option value="" disabled selected>SWITCH</option>
+                        <option v-for="org in organisations" :key="org.slug" :value="org.slug" :disabled="org.name === currentOrg">
+                            {{ org.name }}
+                        </option>
+                    </select>
+                </div>
+
                 <div class="text-[9px] uppercase tracking-widest font-bold text-gray-500 mr-8">
                     TOTAL VIOLATIONS: 
                     <span :class="totalViolations > 0 ? 'text-brutal-red text-[11px]' : 'text-brutal-ink text-[11px]'">
@@ -32,7 +49,6 @@
 
         <main class="absolute top-[12%] bottom-0 left-0 w-full flex z-10 pointer-events-auto">
             
-            <!-- Column 1: Welcome & Upcoming Tests -->
             <div class="w-[30%] h-full p-8 md:p-12 flex flex-col border-r border-transparent overflow-hidden">
                 <p class="text-[9px] uppercase tracking-wide-ish font-semibold text-gray-600 mb-4 shrink-0">
                     Candidate Profile
@@ -41,7 +57,6 @@
                     Welcome,<br>{{ username }}
                 </h1>
 
-                <!-- Upcoming Evaluations (Moved to Left Grid) -->
                 <div class="flex-1 flex flex-col overflow-hidden border-t border-brutal-border/30 pt-8">
                     <p class="text-[9px] uppercase tracking-wide-ish font-semibold text-gray-600 mb-6 shrink-0">
                         Upcoming Evaluations
@@ -62,14 +77,12 @@
                 </div>
             </div>
 
-            <!-- Column 2: Action Required / Active Tests -->
             <div class="w-[35%] h-full p-8 md:p-12 flex flex-col overflow-hidden">
                 <p class="text-[9px] uppercase tracking-wide-ish font-bold text-brutal-red mb-6 flex items-center gap-2 shrink-0">
                     <span class="w-2 h-2 rounded-full bg-brutal-red animate-pulse"></span>
                     Action Required
                 </p>
                 
-                <!-- Scrollable Active Exams Grid -->
                 <div class="flex-1 overflow-y-auto pr-4 pb-4" v-if="activeExam.length">
                     <div v-for="exam in activeExam" :key="exam.id" class="bg-brutal-ink text-brutal-paper p-8 shadow-2xl mb-6 shrink-0 border border-brutal-ink">
                         <h3 class="text-xl font-medium tracking-tight mb-2 truncate">{{ exam.title }}</h3>
@@ -84,7 +97,6 @@
                     </div>
                 </div>
                 
-                <!-- Empty State if no active exams -->
                 <div class="flex-1" v-else>
                     <div class="bg-white border border-brutal-border text-brutal-ink p-8">
                         <h3 class="text-xl font-medium tracking-tight mb-2">You're all caught up!</h3>
@@ -93,7 +105,6 @@
                 </div>
             </div>
 
-            <!-- Column 3: Previous Scores -->
             <div class="w-[35%] h-full p-8 md:p-12 flex flex-col relative overflow-hidden">
                 <p class="text-[9px] uppercase tracking-wide-ish font-semibold text-gray-600 mb-8 shrink-0">
                     Verified Results
@@ -183,13 +194,18 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from "vue"
 import { useRouter } from "vue-router"
-import api from "../services/api"
+import api, { setAuthData } from "../services/api"
 
 const router = useRouter()
 const username = ref("Student")
 
 const allExams = ref([])
 const pastResults = ref([])
+
+// NEW: Multi-tenant State
+const organisations = ref([])
+const currentOrg = ref("")
+const isSwitching = ref(false)
 
 // Modal States
 const showResultModal = ref(false)
@@ -214,7 +230,7 @@ const totalViolations = computed(() => {
   return pastResults.value.reduce((sum, result) => sum + (result.violations || 0), 0)
 })
 
-//  idle timer
+// idle timer
 let idleTimer = null
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000 
 
@@ -256,6 +272,45 @@ const fetchDashboardData = async () => {
   }
 }
 
+// NEW: Fetch user organisations
+const fetchOrganisations = async () => {
+  try {
+    const res = await api.get('organisations/mine/')
+    organisations.value = res.data || []
+  } catch (error) {
+    console.error("Failed to load organisations", error)
+  }
+}
+
+// NEW: Switch Organisation
+const switchOrganisation = async (event) => {
+  const slug = event.target.value
+  if (!slug) return
+  
+  isSwitching.value = true
+  
+  try {
+    const res = await api.post(`organisations/${slug}/switch/`)
+    const data = res.data
+
+    setAuthData({
+      org_slug: data.org_slug,
+      org_name: data.org_name,
+      org_role: data.org_role,
+      org_plan: data.org_plan
+    })
+
+    currentOrg.value = data.org_name
+    event.target.value = "" // Reset dropdown
+    
+    await fetchDashboardData()
+  } catch (error) {
+    console.error("Failed to switch organisation", error)
+  } finally {
+    isSwitching.value = false
+  }
+}
+
 let dashboardInterval = null 
 
 onMounted(() => {
@@ -264,9 +319,17 @@ onMounted(() => {
     username.value = storedName
   }
 
+  // Load current organisation name
+  const storedOrgName = localStorage.getItem("org_name")
+  if (storedOrgName) {
+    currentOrg.value = storedOrgName
+  }
+
   fetchDashboardData()
   dashboardInterval = setInterval(fetchDashboardData, 5000)
   setupActivityListeners()
+  
+  fetchOrganisations()
 })
 
 onUnmounted(() => {

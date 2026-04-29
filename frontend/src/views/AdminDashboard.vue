@@ -137,26 +137,9 @@
 </template>
 
 <script setup>
-
-const getCurrentExamId = () => {
-  return localStorage.getItem("active_exam_id");
-};
-
-const handleUnauthorized = () => {
-  localStorage.clear();
-
-  if (liveStatsInterval) {
-    clearInterval(liveStatsInterval);
-  }
-
-  if (router.currentRoute.value.path !== "/login") {
-    router.push("/login");
-  }
-};
-
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter } from 'vue-router';
-
+import api from '@/services/api';
 
 // component Imports
 import DashboardOverview from '../components/DashboardOverview.vue';
@@ -165,9 +148,12 @@ import ExamControl from '../components/ExamControl.vue';
 import ReportsTab from '../components/ReportsTab.vue';
 import UserDirectory from '../components/UserDirectory.vue';
 import LiveMonitor from '../components/LiveMonitor.vue';
-import api from '../services/api';
 
 const router = useRouter();
+
+const getCurrentExamId = () => {
+  return localStorage.getItem("active_exam_id");
+};
 
 // Global Parent State
 const activeTab = ref('dashboard');
@@ -176,30 +162,24 @@ const selectedUser = ref(null);
 const adminName = ref('Admin');
 
 // DRF Backend State
-const API_BASE_URL = 'http://localhost:8000/api/admin';
 const exams = ref([]);
 const liveCandidatesCount = ref(0);
 const highRiskCount = ref(0);
 let liveStatsInterval = null;
 
-
 const currentMonitorExam = ref(localStorage.getItem("active_exam_id") || "");
-
 
 const activeExamsList = computed(() => {
   return exams.value.filter(e => e.status === 'Active');
 });
-
 
 const setMonitoringExam = () => {
   if (currentMonitorExam.value) {
     localStorage.setItem("active_exam_id", currentMonitorExam.value);
     console.log("Admin is now monitoring Exam ID:", currentMonitorExam.value);
     
-   
     fetchDashboardStats(); 
     
-   
     if (activeTab.value === 'live') {
       activeTab.value = 'dashboard';
       setTimeout(() => { activeTab.value = 'live'; }, 50);
@@ -207,30 +187,19 @@ const setMonitoringExam = () => {
   }
 };
 
-
-const getHeaders = () => ({
-  'Authorization': `Bearer ${localStorage.getItem("access_token")}`,
-  'Content-Type': 'application/json'
-});
-
-
 const fetchExams = async () => {
   try {
-    const response = await fetch(`${API_BASE_URL}/exam/list/`, { headers: getHeaders() });
-
-    if (response.status === 401) {
-      handleUnauthorized();
-      return;
-      }
-    if (response.ok) {
-      const data = await response.json();
-      exams.value = data.map(exam => ({
+    const response = await api.get(`admin/exam/list/`);
+    const data = response.data;
+    
+    exams.value = data.map(exam => ({
       ...exam, 
       status: exam.is_active === true ? 'Active' : 'Disabled',
       date: exam.start_time ? new Date(exam.start_time).toISOString().split('T')[0] : 'No Date'
-      }));
-    }
-  } catch (error) { console.error("Exams load failed:", error); }
+    }));
+  } catch (error) { 
+    console.error("Exams load failed:", error); 
+  }
 };
 
 const activeExamsCount = computed(() => exams.value.filter(e => e.status === 'Active').length);
@@ -244,10 +213,8 @@ const fetchDashboardStats = async () => {
       console.warn("No active exam id found");
       return;
     } 
-    
 
     const response = await api.get(`admin/exam/${examId}/live/`);
-
     const data = response.data;
     console.log("LIVE DASHBOARD DATA:", data);
 
@@ -262,30 +229,53 @@ const fetchDashboardStats = async () => {
     console.error("Stats load failed:", error);
   }
 };
+
+const startPolling = () => {
+  if (!liveStatsInterval) {
+    liveStatsInterval = setInterval(fetchDashboardStats, 10000);
+  }
+};
+
+const stopPolling = () => {
+  if (liveStatsInterval) {
+    clearInterval(liveStatsInterval);
+    liveStatsInterval = null;
+  }
+};
+
+watch(activeTab, (newTab) => {
+  if (newTab === 'dashboard' || newTab === 'live') {
+    startPolling();
+  } else {
+    stopPolling();
+  }
+});
+
 onMounted(() => {
-    
     window.addEventListener("exam-started", fetchDashboardStats);
 
     if (!localStorage.getItem("access_token")) {
      router.push("/login");
       return;
-      }
+    }
 
   const storedName = localStorage.getItem("username");
   if (storedName) adminName.value = storedName;
   fetchExams();
   fetchDashboardStats();
-  // Poll stats every 5 seconds to keep the active candidate  number accurate
-  liveStatsInterval = setInterval(fetchDashboardStats, 5000);
+  
+  if (activeTab.value === 'dashboard' || activeTab.value === 'live') {
+    startPolling();
+  }
 });
 
 onUnmounted(() => {
   window.removeEventListener("exam-started", fetchDashboardStats);
-  if (liveStatsInterval) clearInterval(liveStatsInterval);
+  stopPolling();
 });
 
 const tabs = [
-  { id: 'dashboard', label: 'Dashboard', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>' },
+  { id: 'dashboard', label: 'Dashboard', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>' },
   { id: 'live', label: 'Live Monitor', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>' },
   { id: 'exams', label: 'Exam Control', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"></path></svg>' },
   { id: 'reports', label: 'Reports', icon: '<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="square" stroke-linejoin="miter" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>' },
@@ -302,24 +292,20 @@ const openModal = async (user) => {
   showModal.value = true;
   try {
     const target = user.username || user.id;
-    const response = await fetch(`${API_BASE_URL}/user/${target}/`, { headers: getHeaders() });
-
-    if (response.status === 401) {
-      handleUnauthorized();
-      return;
-      }
-    if (response.ok) {
-      const data = await response.json();
-      selectedUser.value.breakdown = data.breakdown || {};
-      selectedUser.value.totalViolations = Object.values(selectedUser.value.breakdown)
-      .reduce((sum, val) => sum + Number(val || 0), 0);
-      selectedUser.value.screenshots = (data.screenshots || []).map(shot => ({
-        id: shot.id, type: shot.violation_type || 'SYSTEM_FLAG',
-        time: new Date(shot.timestamp).toLocaleTimeString(),
-        image_url: shot.image_url, critical: true 
-      }));
-    }
-  } catch (e) { console.error("User details failed:", e); }
+    const response = await api.get(`admin/user/${target}/`);
+    const data = response.data;
+    
+    selectedUser.value.breakdown = data.breakdown || {};
+    selectedUser.value.totalViolations = Object.values(selectedUser.value.breakdown)
+    .reduce((sum, val) => sum + Number(val || 0), 0);
+    selectedUser.value.screenshots = (data.screenshots || []).map(shot => ({
+      id: shot.id, type: shot.violation_type || 'SYSTEM_FLAG',
+      time: new Date(shot.timestamp).toLocaleTimeString(),
+      image_url: shot.image_url, critical: true 
+    }));
+  } catch (e) { 
+    console.error("User details failed:", e); 
+  }
 };
 
 const closeModal = () => { showModal.value = false; selectedUser.value = null; };
@@ -327,12 +313,12 @@ const closeModal = () => { showModal.value = false; selectedUser.value = null; }
 const clearUserViolations = async (username) => {
   if (!username) return;
   try {
-    const response = await fetch(`${API_BASE_URL}/user/${username}/clear/`, { method: 'POST', headers: getHeaders() });
-    if (response.ok) {
-      selectedUser.value.totalViolations = 0;
-      alert("Cleared.");
-    }
-  } catch (e) { console.error("Clear failed:", e); }
+    await api.post(`admin/user/${username}/clear/`);
+    selectedUser.value.totalViolations = 0;
+    alert("Cleared.");
+  } catch (e) { 
+    console.error("Clear failed:", e); 
+  }
 };
 
 const logout = () => {

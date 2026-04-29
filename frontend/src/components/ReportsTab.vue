@@ -72,7 +72,7 @@
             <p>C: {{ q.option_c }}</p>
             <p>D: {{ q.option_d }}</p>
             <p class="text-green-600 font-bold">
-              Correct: {{ q.correct_answer.toUpperCase() }}
+              Correct: {{ q.correct_answer?.toUpperCase() }}
             </p>
           </div>
         </div>
@@ -84,21 +84,16 @@
 
 <script setup>
 import { ref } from 'vue';
+import api from '@/services/api';
 
 defineProps({
   exams: Array
 });
 
-const API_BASE_URL = 'http://localhost:8000/api/admin';
-
 const selectedExam = ref(null);
 const viewType = ref(""); // results | qa
 const results = ref([]);
 const qaData = ref([]);
-
-const getHeaders = () => ({
-  'Authorization': `Bearer ${localStorage.getItem("access_token")}`,
-});
 
 // TOGGLE RESULTS
 const toggleResults = async (examId) => {
@@ -111,11 +106,12 @@ const toggleResults = async (examId) => {
   selectedExam.value = examId;
   viewType.value = 'results';
 
-  const res = await fetch(`${API_BASE_URL}/exam/${examId}/results/`, {
-    headers: getHeaders()
-  });
-
-  results.value = await res.json();
+  try {
+    const res = await api.get(`admin/exam/${examId}/results/`);
+    results.value = res.data;
+  } catch (e) {
+    console.error("Results fetch error:", e);
+  }
 };
 
 //  TOGGLE QA
@@ -133,16 +129,8 @@ const toggleQA = async (examId) => {
   qaData.value = []; 
 
   try {
-    const res = await fetch(`${API_BASE_URL}/exam/${examId}/qa/`, {
-      headers: getHeaders()
-    });
-
-    if (!res.ok) {
-      console.error("QA API failed:", res.status);
-      return;
-    }
-
-    const data = await res.json();
+    const res = await api.get(`admin/exam/${examId}/qa/`);
+    const data = res.data;
 
     console.log("QA DATA:", data); // debug
 
@@ -153,6 +141,7 @@ const toggleQA = async (examId) => {
     console.error("QA fetch error:", e);
   }
 };
+
 //  FORMAT TIME
 const formatTime = (time) => {
   if (!time) return "Not submitted";

@@ -78,6 +78,7 @@
         
         <div class="flex-1 h-full flex items-center justify-between px-8 border-r border-brutal-border">
           <div>
+            <p v-if="currentOrg" class="text-[9px] uppercase tracking-widest font-bold text-brutal-red mb-1">{{ currentOrg }}</p>
             <h1 class="text-xl md:text-2xl font-medium tracking-tight truncate">{{ exam?.title || 'Loading Exam...' }}</h1>
             <div class="h-5 flex items-center mt-1 gap-4">
               <p class="text-[9px] uppercase tracking-widest font-semibold text-gray-500">
@@ -231,7 +232,6 @@
 </template>
 
 <script setup>
-
 const handleExamTermination = (message = "Exam has been terminated by admin") => {
   errorMessage.value = message;
 
@@ -253,6 +253,7 @@ const router = useRouter()
 const exam = ref(null)
 const answers = ref({})
 const timeLeft = ref(0)
+const currentOrg = ref("") // NEW: Organisation state
 
 const violationCount = ref(0)
 const warningMessage = ref("")
@@ -368,6 +369,18 @@ const fetchExamData = async () => {
     const res = await api.get(`exams/${examId}/`)
     exam.value = res.data?.data || res.data
 
+    // NEW: ORG CONSISTENCY CHECK
+    const storedOrgSlug = localStorage.getItem("org_slug")
+    const examOrg = exam.value.organisation || exam.value.org_slug
+    
+    if (examOrg && storedOrgSlug && examOrg !== storedOrgSlug) {
+      errorMessage.value = "Organisation mismatch. Returning to dashboard."
+      setTimeout(() => {
+        router.push("/dashboard")
+      }, 2000)
+      return
+    }
+
     const saved = localStorage.getItem(`exam_state_${examId}`)
 
     if (saved) {
@@ -389,6 +402,13 @@ const fetchExamData = async () => {
 // Step 2: The User clicks "Initialize Secure Mode"
 const enterSecureMode = async () => {
   try {
+    // NEW: OPTIONAL SAFETY (LIGHT)
+    if (!localStorage.getItem("org_slug")) {
+      errorMessage.value = "No organisation context found. Returning to dashboard."
+      setTimeout(() => router.push("/dashboard"), 2000)
+      return
+    }
+
     // 1. Ask for permission first
     console.log("STEP 1: before webcam");
     await startWebcam();
@@ -676,6 +696,12 @@ const cleanup = () => {
 
 onMounted(() => {
   document.addEventListener('contextmenu', event => event.preventDefault());
+  
+  // NEW: LOAD CURRENT ORG
+  const storedOrgName = localStorage.getItem("org_name")
+  if (storedOrgName) {
+    currentOrg.value = storedOrgName
+  }
   
   // Only fetch the text data on mount. do not start the exam attempt yet.
   fetchExamData()

@@ -4,11 +4,31 @@ from django.utils.timezone import now
 from rest_framework.decorators import api_view, permission_classes
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
+from django.db.models import F
 import cloudinary.uploader
+
 from core.permissions import IsOrgMember
 from .models import Violation, Screenshot
 from exams.models import ExamAttempt
 
+
+# =========================
+# SERVER-CONTROLLED SEVERITY
+# =========================
+VIOLATION_SEVERITY_MAP = {
+    "tab_switch": 3,
+    "multiple_faces": 8,
+    "no_face": 6,
+    "phone_detected": 9,
+    "window_blur": 4,
+    "copy_paste": 5,
+    "suspicious_movement": 2,
+}
+
+
+# =========================
+# LOG VIOLATION
+# =========================
 class LogViolationView(APIView):
     permission_classes = [IsOrgMember]
 
@@ -17,18 +37,24 @@ class LogViolationView(APIView):
 
         attempt_id = request.data.get("attempt_id")
         violation_type = request.data.get("type")
-        severity = request.data.get("severity", 1)
         metadata = request.data.get("metadata", {})
 
         if not attempt_id:
             return Response({"error": "attempt_id is required"}, status=400)
+
         if not violation_type:
             return Response({"error": "type is required"}, status=400)
 
-        try:
-            severity = int(severity)
-        except:
-            return Response({"error": "severity must be integer"}, status=400)
+        #  Validate violation type
+        if violation_type not in VIOLATION_SEVERITY_MAP:
+            return Response({"error": "Invalid violation type"}, status=400)
+
+        # Server-controlled severity
+        severity = VIOLATION_SEVERITY_MAP.get(violation_type, 1)
+
+        # Safety cap
+        if severity > 10:
+            severity = 10
 
         org = request.user.current_organisation
 
@@ -36,7 +62,7 @@ class LogViolationView(APIView):
             attempt = ExamAttempt.objects.get(
                 id=attempt_id,
                 user=request.user,
-                exam__organisation=org  
+                exam__organisation=org
             )
         except ExamAttempt.DoesNotExist:
             return Response({"error": "Invalid attempt"}, status=400)
@@ -44,6 +70,7 @@ class LogViolationView(APIView):
         if attempt.status != "active":
             return Response({"error": "Exam already ended"}, status=400)
 
+        #  Create violation record
         Violation.objects.create(
             attempt=attempt,
             violation_type=violation_type,
@@ -51,17 +78,23 @@ class LogViolationView(APIView):
             metadata=metadata
         )
 
-        attempt.total_violations += 1
-        attempt.risk_score += severity
+        #  Atomic update 
+        ExamAttempt.objects.filter(id=attempt.id).update(
+            total_violations=F('total_violations') + 1,
+            risk_score=F('risk_score') + severity
+        )
+
+        # refresh instance
+        attempt.refresh_from_db()
 
         exam = attempt.exam
 
+        #  Auto terminate logic
         if exam.auto_submit_on_violation:
             if attempt.total_violations >= exam.violation_limit:
                 attempt.status = "terminated"
                 attempt.end_time = now()
-
-        attempt.save()
+                attempt.save()
 
         return Response({
             "status": "logged",
@@ -71,6 +104,9 @@ class LogViolationView(APIView):
         })
 
 
+# =========================
+# SCREENSHOT UPLOAD
+# =========================
 class ScreenshotUploadView(APIView):
     permission_classes = [IsOrgMember]
 
@@ -82,6 +118,7 @@ class ScreenshotUploadView(APIView):
 
         if not attempt_id:
             return Response({"error": "attempt_id is required"}, status=400)
+
         if not image_file:
             return Response({"error": "image file is required"}, status=400)
 
@@ -91,7 +128,7 @@ class ScreenshotUploadView(APIView):
             attempt = ExamAttempt.objects.get(
                 id=attempt_id,
                 user=request.user,
-                exam__organisation=org  
+                exam__organisation=org
             )
         except ExamAttempt.DoesNotExist:
             return Response({"error": "Invalid attempt"}, status=400)
@@ -119,12 +156,17 @@ class ScreenshotUploadView(APIView):
             "url": image_url
         })
 
+
+# =========================
+# HEARTBEAT (KEEP ALIVE)
+# =========================
 @ratelimit(key='user', rate='30/m', method='POST', block=True)
 @api_view(['POST'])
 @permission_classes([IsOrgMember])
 def student_heartbeat(request):
 
     attempt_id = request.data.get("attempt_id")
+
     if not attempt_id:
         return Response({"error": "attempt_id required"}, status=400)
 
@@ -133,7 +175,7 @@ def student_heartbeat(request):
     updated = ExamAttempt.objects.filter(
         id=attempt_id,
         user=request.user,
-        exam__organisation=org   
+        exam__organisation=org
     ).update(last_active=now())
 
     if not updated:

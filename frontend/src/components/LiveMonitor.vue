@@ -80,6 +80,7 @@
 
 <script setup>
 import { ref, onMounted, onUnmounted, computed } from 'vue';
+import api from '@/services/api';
 
 const emit = defineEmits(['open-modal']);
 
@@ -90,46 +91,18 @@ let pollingInterval = null;
 let isFetching = false; 
 
 const CURRENT_EXAM_ID = () => localStorage.getItem("active_exam_id"); 
-const API_BASE_URL = 'http://localhost:8000/api/admin';
-
-// Headers
-const getHeaders = () => ({
-  'Authorization': `Bearer ${localStorage.getItem("access_token")}`,
-  'Content-Type': 'application/json'
-});
-
-
-const handleUnauthorized = () => {
-  localStorage.clear();
-  window.location.href = "/login";
-};
-
 
 const fetchLiveMonitorData = async () => {
-
-  if (isFetching || !localStorage.getItem("access_token")) return; 
+  if (isFetching) return; 
   isFetching = true;
 
   const examId = localStorage.getItem("active_exam_id")
   try {
     if (!examId) return;
-    const response = await fetch(
-      `${API_BASE_URL}/exam/${examId}/live/`, 
-      { headers: getHeaders() }
-    );
-
-    // expire token
-    if (response.status === 401) {
-      handleUnauthorized();
-      return;
-    }
-
-    if (!response.ok) {
-      console.error("API Error:", response.status);
-      return;
-    }
-
-    const data = await response.json();
+    
+    // Using Axios instance (auto-handles base URL, auth headers, and 401s)
+    const response = await api.get(`admin/exam/${examId}/live/`);
+    const data = response.data;
 
     liveUsers.value = data.map(item => ({
       id: item.attempt_id,

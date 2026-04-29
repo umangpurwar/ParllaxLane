@@ -8,8 +8,6 @@ from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 
 
-
-
 from .serializers import ExamSerializer, ExamDetailSerializer
 from monitoring.models import Violation
 
@@ -65,8 +63,19 @@ class StartExamView(generics.GenericAPIView):
             "attempt_id": attempt.id,
             "exam_id": exam.id
         })
+    
+from rest_framework import generics
+from rest_framework.response import Response
+from django.utils.timezone import now
+from django.utils.decorators import method_decorator
+from django_ratelimit.decorators import ratelimit
+
+from core.permissions import IsOrgMember
+from .models import Question, Answer, ExamAttempt, Exam, QuestionOption
+
 
 class SubmitExamView(generics.GenericAPIView):
+
     permission_classes = [IsOrgMember]
 
     @method_decorator(ratelimit(key='user', rate='3/m', method='POST', block=True))
@@ -75,6 +84,7 @@ class SubmitExamView(generics.GenericAPIView):
         user = request.user
         org = user.current_organisation
 
+        # Validate exam
         try:
             exam = Exam.objects.get(pk=pk, organisation=org)
         except Exam.DoesNotExist:
@@ -83,6 +93,7 @@ class SubmitExamView(generics.GenericAPIView):
         if not exam.is_active:
             return Response({"error": "Exam is disabled"}, status=403)
 
+        # Get latest attempt
         attempt = ExamAttempt.objects.filter(
             user=user,
             exam=exam
@@ -94,34 +105,114 @@ class SubmitExamView(generics.GenericAPIView):
         if attempt.status == "terminated":
             return Response({"error": "Exam has been terminated"}, status=403)
 
-        answers = request.data.get("answers", {})
-        score = 0
+        if attempt.status == "completed":
+            return Response({"error": "Exam already submitted"}, status=400)
 
-        for question_id, selected in answers.items():
+        answers = request.data.get("answers", {})
+
+        score = 0
+        total_points = 0
+
+        # Process answers
+        for question_id, submitted_answer in answers.items():
             try:
-                question = Question.objects.get(
-                    id=question_id,
-                    exam=exam   
-                )
-                Answer.objects.create(
+                question = Question.objects.get(id=question_id, exam=exam)
+
+                # Prevent duplicate answers
+                if Answer.objects.filter(
                     attempt=attempt,
-                    question=question,
-                    selected_option=selected
-                )
-                if selected == question.correct_answer:
-                    score += 1
+                    question=question
+                ).exists():
+                    continue
+
+                is_correct = False
+                total_points += question.points
+
+                # =========================
+                # MCQ / TRUE-FALSE
+                # =========================
+                if question.question_type in ["mcq", "true_false"]:
+
+                    try:
+                        option = QuestionOption.objects.get(
+                            id=submitted_answer,
+                            question=question
+                        )
+                    except QuestionOption.DoesNotExist:
+                        continue
+
+                    Answer.objects.create(
+                        attempt=attempt,
+                        question=question,
+                        selected_option=option
+                    )
+
+                    if option.is_correct:
+                        score += question.points
+                        is_correct = True
+                    else:
+                        score -= question.negative_points
+
+                # =========================
+                # SHORT ANSWER
+                # =========================
+                elif question.question_type == "short_answer":
+
+                    Answer.objects.create(
+                        attempt=attempt,
+                        question=question,
+                        text_answer=submitted_answer
+                    )
+
+                    correct = (question.correct_text_answer or "").strip().lower()
+                    user_ans = str(submitted_answer).strip().lower()
+
+                    if correct and user_ans == correct:
+                        score += question.points
+                        is_correct = True
+                    else:
+                        score -= question.negative_points
+
+                # =========================
+                # FILE / IMAGE BASED (future-safe)
+                # =========================
+                elif question.question_type in ["file_upload", "image_based"]:
+
+                    Answer.objects.create(
+                        attempt=attempt,
+                        question=question
+                        # file handling can be added later
+                    )
+
+                    # no auto scoring
+                    is_correct = None
+
+                # Save correctness flag
+                Answer.objects.filter(
+                    attempt=attempt,
+                    question=question
+                ).update(is_correct=is_correct)
+
             except Question.DoesNotExist:
                 continue
 
-        attempt.score = score
+        # Save attempt
+        attempt.points_scored = score
+        attempt.total_points = total_points
+
         attempt.status = "completed"
         attempt.end_time = now()
         attempt.save()
 
         return Response({
+            "message": "Exam submitted successfully",
+            "points_scored": score,
+            "total_points": total_points,
             "score": score,
-            "total": exam.questions.count()
-        })
+            "total_questions": exam.questions.count()
+        })    
+    
+    
 
 @api_view(['GET'])
 @permission_classes([IsOrgMember])
@@ -131,26 +222,31 @@ def my_results(request):
 
     attempts = ExamAttempt.objects.filter(
         user=request.user,
-        exam__organisation=org, 
+        exam__organisation=org,
         status__in=['completed', 'terminated']
     ).select_related('exam')
 
     data = []
-    for attempt in attempts:
-        total_questions = attempt.exam.questions.count()
 
+    for attempt in attempts:
         data.append({
-            "id": attempt.id,
+            "attempt_id": attempt.id,
             "exam_title": attempt.exam.title,
+
+            # new scoring
+            "points_scored": attempt.points_scored or 0,
+            "total_points": attempt.total_points or 0,
+
+            # legacy support
             "score": attempt.score or 0,
-            "total_questions": total_questions,
+
+            "total_questions": attempt.exam.questions.count(),
             "violations": attempt.total_violations,
             "status": attempt.status.capitalize(),
             "date": attempt.start_time
         })
 
     return Response(data)
-
 
 class CreateExamView(generics.CreateAPIView):
 

@@ -1,7 +1,7 @@
 from django.urls import path
-from .views import RegisterView, health_check
+from .views import RegisterView
 
 urlpatterns = [
     path("register/", RegisterView.as_view(), name="register"),
-    path("health/", health_check),
+
 ]

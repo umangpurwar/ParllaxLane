@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.db import transaction
 from .models import Exam, Question, QuestionOption, ExamAttempt, Answer
 from organisations.plan_features import get_plan_features
 
@@ -73,6 +74,7 @@ class ExamSerializer(serializers.ModelSerializer):
             "questions",
         ]
 
+    @transaction.atomic
     def create(self, validated_data):
         request = self.context.get("request")
         org = request.user.current_organisation
@@ -82,12 +84,11 @@ class ExamSerializer(serializers.ModelSerializer):
 
         questions_data = validated_data.pop("questions")
 
+        # validate first
         if len(questions_data) > features["max_questions"]:
             raise serializers.ValidationError(
                 {"error": "Question limit exceeded for your plan"}
             )
-
-        exam = Exam.objects.create(**validated_data)
 
         for question_data in questions_data:
             q_type = question_data.get("question_type", "mcq")
@@ -107,6 +108,10 @@ class ExamSerializer(serializers.ModelSerializer):
                     {"error": "File upload questions not allowed in your plan"}
                 )
 
+        # create exam only AFTER validation
+        exam = Exam.objects.create(**validated_data)
+
+        for question_data in questions_data:
             options_data = question_data.pop("options", [])
 
             question = Question.objects.create(
@@ -122,6 +127,7 @@ class ExamSerializer(serializers.ModelSerializer):
 
         return exam
 
+    @transaction.atomic
     def update(self, instance, validated_data):
         request = self.context.get("request")
         org = request.user.current_organisation
@@ -142,8 +148,7 @@ class ExamSerializer(serializers.ModelSerializer):
                     {"error": "Question limit exceeded for your plan"}
                 )
 
-            instance.questions.all().delete()
-
+            # validate first
             for question_data in questions_data:
                 q_type = question_data.get("question_type", "mcq")
 
@@ -162,6 +167,9 @@ class ExamSerializer(serializers.ModelSerializer):
                         {"error": "File upload questions not allowed in your plan"}
                     )
 
+            instance.questions.all().delete()
+
+            for question_data in questions_data:
                 options_data = question_data.pop("options", [])
 
                 question = Question.objects.create(
@@ -210,4 +218,22 @@ class ExamAttemptSerializer(serializers.ModelSerializer):
             "status",
             "last_active",
             "answers",
+        ]
+
+
+class ExamDetailSerializer(serializers.ModelSerializer):
+    questions = QuestionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Exam
+        fields = [
+            "id",
+            "title",
+            "description",
+            "duration",
+            "start_time",
+            "end_time",
+            "is_active",
+            "is_published",
+            "questions",
         ]

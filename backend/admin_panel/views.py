@@ -11,6 +11,8 @@ from django.utils.timezone import now
 from django.utils.dateparse import parse_datetime
 from exams.serializers import ExamSerializer, ExamDetailSerializer
 from django.contrib.auth import get_user_model
+from exams.models import QuestionOption
+
 
 User = get_user_model()
 
@@ -269,18 +271,28 @@ def update_exam(request, exam_id):
     exam.questions.all().delete()
 
     for q in request.data.get("questions", []):
-        Question.objects.create(
+        options_data = q.get("options") or []
+
+        question = Question.objects.create(
             exam=exam,
             text=q.get("text"),
-            option_a=q.get("option_a"),
-            option_b=q.get("option_b"),
-            option_c=q.get("option_c"),
-            option_d=q.get("option_d"),
-            correct_answer=q.get("correct_answer"),
+            question_type=q.get("question_type", "mcq"),
+            points=q.get("points", 1),
+            negative_points=q.get("negative_points", 0),
+            order=q.get("order", 0),
+            image=q.get("image"),
+            correct_text_answer=q.get("correct_text_answer"),
+            explanation=q.get("explanation"),
         )
 
-    return Response({"status": "updated"})
+        for opt in options_data:
+            QuestionOption.objects.create(
+                question=question,
+                text=opt.get("text"),
+                is_correct=opt.get("is_correct", False)
+            )
 
+    return Response({"status": "updated"})
 
 # ---------------- CREATE / DELETE ----------------
 
@@ -289,7 +301,7 @@ def update_exam(request, exam_id):
 @permission_classes([IsOrgAdmin])
 def create_exam(request):
 
-    serializer = ExamSerializer(data=request.data)
+    serializer = ExamSerializer(data=request.data, context={"request":request})
 
     if serializer.is_valid():
         exam = serializer.save(
@@ -336,12 +348,18 @@ def exam_qa(request, exam_id):
         data.append({
             "id": q.id,
             "text": q.text,
-            "option_a": q.option_a,
-            "option_b": q.option_b,
-            "option_c": q.option_c,
-            "option_d": q.option_d,
-            "correct_answer": q.correct_answer
-        })
+            "question_type": q.question_type,
+            "points": q.points,
+            "options": [
+                {
+                    "id": opt.id,
+                    "text": opt.text,
+                    "is_correct": opt.is_correct
+                }
+                for opt in q.options.all()
+             ],
+            "correct_text_answer": q.correct_text_answer
+    })
 
     return Response(data)
 
@@ -368,11 +386,11 @@ def exam_results(request, exam_id):
         latest = attempts_list[-1]
 
         data.append({
-            "username": username,
-            "attempts": len(attempts_list),
-            "score": latest.score,
-            "start_time": latest.start_time,
-            "end_time": latest.end_time,
-        })
-
+        "username": username,
+        "attempts": len(attempts_list),
+        "points_scored": latest.points_scored,
+        "total_points": latest.total_points,
+        "start_time": latest.start_time,
+        "end_time": latest.end_time,
+         })
     return Response(data)

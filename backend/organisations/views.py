@@ -42,7 +42,13 @@ class CreateOrganisationView(APIView):
         request.user.current_organisation = org
         request.user.save()
 
-        return Response({"status": "created", "org": slug})
+        return Response({
+            "status": "created",
+            "slug": org.slug,
+            "name": org.name,
+            "plan": org.plan,
+            "role": "owner"
+        })
 
 
 # 2. List my organisations
@@ -80,8 +86,13 @@ class SwitchOrganisationView(APIView):
         request.user.current_organisation = membership.organisation
         request.user.save()
 
-        return Response({"status": "switched", "org": slug})
-
+        return Response({
+            "status": "switched",
+            "slug": membership.organisation.slug,
+            "name": membership.organisation.name,
+            "plan": membership.organisation.plan,
+            "role": membership.role
+        })
 
 #  4. Invite member 
 
@@ -168,7 +179,7 @@ class AcceptInviteView(APIView):
         if invite.accepted:
             return Response({"error": "Already accepted"}, status=400)
 
-        OrganisationMember.objects.get_or_create(
+        member, _ = OrganisationMember.objects.get_or_create(
             organisation=invite.organisation,
             user=request.user,
             defaults={"role": invite.role}
@@ -177,4 +188,14 @@ class AcceptInviteView(APIView):
         invite.accepted = True
         invite.save()
 
-        return Response({"status": "joined organisation"})
+        # set active organisation
+        request.user.current_organisation = invite.organisation
+        request.user.save()
+
+        return Response({
+            "status": "joined",
+            "org_slug": invite.organisation.slug,
+            "org_name": invite.organisation.name,
+            "org_plan": invite.organisation.plan,
+            "org_role": member.role
+        })

@@ -205,13 +205,11 @@ class SubmitExamView(generics.GenericAPIView):
         attempt.save()
 
         return Response({
-            "message": "Exam submitted successfully",
-            "points_scored": score,
-            "total_points": total_points,
-            "score": score,
-            "total_questions": exam.questions.count()
-        })    
-    
+    "message": "Exam submitted successfully",
+    "points_scored": score,
+    "total_points": total_points,
+    "total_questions": exam.questions.count()
+})
     
 
 @api_view(['GET'])
@@ -233,12 +231,8 @@ def my_results(request):
             "attempt_id": attempt.id,
             "exam_title": attempt.exam.title,
 
-            # new scoring
             "points_scored": attempt.points_scored or 0,
             "total_points": attempt.total_points or 0,
-
-            # legacy support
-            "score": attempt.score or 0,
 
             "total_questions": attempt.exam.questions.count(),
             "violations": attempt.total_violations,

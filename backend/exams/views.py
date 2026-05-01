@@ -1,20 +1,20 @@
 from rest_framework import generics
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
-from .models import Question, Answer, ExamAttempt, Exam
+from .models import Question, Answer, ExamAttempt, Exam, QuestionOption
 from django.utils.timezone import now
 from core.permissions import IsOrgMember, IsOrgAdmin
 from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
+from .serializers import ExamListSerializer
 
 
 from .serializers import ExamSerializer, ExamDetailSerializer
 from monitoring.models import Violation
 
-
 class ExamListView(generics.ListAPIView):
 
-    serializer_class = ExamSerializer
+    serializer_class = ExamListSerializer
     permission_classes = [IsOrgMember]
 
     def get_queryset(self):
@@ -23,7 +23,6 @@ class ExamListView(generics.ListAPIView):
             organisation=org,
             is_published=True
         )
-
 
 class ExamDetailView(generics.RetrieveAPIView):
 
@@ -64,15 +63,6 @@ class StartExamView(generics.GenericAPIView):
             "exam_id": exam.id
         })
     
-from rest_framework import generics
-from rest_framework.response import Response
-from django.utils.timezone import now
-from django.utils.decorators import method_decorator
-from django_ratelimit.decorators import ratelimit
-
-from core.permissions import IsOrgMember
-from .models import Question, Answer, ExamAttempt, Exam, QuestionOption
-
 
 class SubmitExamView(generics.GenericAPIView):
 

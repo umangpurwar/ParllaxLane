@@ -103,7 +103,7 @@ class InviteMemberView(APIView):
     def post(self, request, slug):
         org = get_object_or_404(Organisation, slug=slug)
 
-        # check admin
+        # check admin access
         if not org.members.filter(
             user=request.user,
             role__in=["owner", "admin"]
@@ -112,37 +112,65 @@ class InviteMemberView(APIView):
 
         email = request.data.get("email")
         role = request.data.get("role", "candidate")
+        expiry_days = request.data.get("expiry_days")
 
         if not email:
             return Response({"error": "email required"}, status=400)
 
-        #  ALWAYS create invite first
+        # handle expiry (admin controlled)
+        expires_at = None
+        if expiry_days:
+            try:
+                expiry_days = int(expiry_days)
+
+                # safety limit
+                if expiry_days < 1 or expiry_days > 30:
+                    return Response(
+                        {"error": "expiry_days must be between 1 and 30"},
+                        status=400
+                    )
+
+                expires_at = now() + timedelta(days=expiry_days)
+
+            except:
+                return Response({"error": "Invalid expiry_days"}, status=400)
+
+        # create invite
         invite = OrganisationInvite.objects.create(
             organisation=org,
             email=email,
             role=role,
-            token=str(uuid.uuid4())
+            token=str(uuid.uuid4()),
+            expires_at=expires_at
         )
 
-        #  THEN check if user exists
+        # check if user already exists
         user = User.objects.filter(email=email).first()
 
         if user:
-            OrganisationMember.objects.get_or_create(
+            member, _ = OrganisationMember.objects.get_or_create(
                 organisation=org,
                 user=user,
                 defaults={"role": role}
             )
+
             invite.accepted = True
             invite.save()
 
-            return Response({"status": "user added directly"})
+            return Response({
+                "status": "user added directly",
+                "org_slug": org.slug,
+                "org_name": org.name,
+                "org_plan": org.plan,
+                "org_role": member.role
+            })
 
-        
         return Response({
             "status": "invite created",
-            "invite_token": invite.token
+            "invite_token": invite.token,
+            "expires_at": invite.expires_at
         })
+    
 
 # 5. List members (admin only)
 class OrganisationMembersView(APIView):
@@ -179,6 +207,14 @@ class AcceptInviteView(APIView):
         if invite.accepted:
             return Response({"error": "Already accepted"}, status=400)
 
+        # CHECKS MUST COME FIRST
+        if invite.is_revoked:
+            return Response({"error": "Invite revoked"}, status=400)
+
+        if invite.expires_at and now() > invite.expires_at:
+            return Response({"error": "Invite expired"}, status=400)
+
+        # ONLY AFTER VALIDATION then create member
         member, _ = OrganisationMember.objects.get_or_create(
             organisation=invite.organisation,
             user=request.user,

@@ -237,3 +237,16 @@ class ExamDetailSerializer(serializers.ModelSerializer):
             "is_published",
             "questions",
         ]
+
+class ExamListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Exam
+        fields = [
+            "id",
+            "title",
+            "description",
+            "duration",
+            "start_time",
+            "end_time",
+            "is_active",
+        ]

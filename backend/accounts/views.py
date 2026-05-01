@@ -6,10 +6,12 @@ from .serializers import CustomTokenSerializer
 from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
 from django.http import JsonResponse
+from rest_framework.permissions import AllowAny
 
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     serializer_class = RegisterSerializer
+    permission_classes = [AllowAny]
 
     @method_decorator(ratelimit(key='ip', rate='3/m', method='POST', block=True))
     def post(self, request, *args, **kwargs):

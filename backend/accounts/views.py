@@ -33,6 +33,7 @@ class RegisterView(generics.CreateAPIView):
 class CustomLoginView(TokenObtainPairView):
 
     serializer_class = CustomTokenSerializer
+    permission_classes = [AllowAny]
 
     @method_decorator(ratelimit(key='ip', rate='5/m', method='POST', block=True))
     def post(self, request, *args, **kwargs):
@@ -48,18 +49,25 @@ class SendOTPView(APIView):
 
     def post(self, request):
         email = request.data.get("email")
+        mode = request.data.get("mode")  # "login" or "register"
 
-        if not email:
-            return Response({"error": "Email required"}, status=400)
+        if not email or not mode:
+            return Response({"error": "Email and mode required"}, status=400)
 
         email = email.lower().strip()
 
-        # CHECK USER EXISTS
-        if not User.objects.filter(email=email).exists():
-            return Response(
-                 {"code": "USER_NOT_FOUND", "error": "User not registered"},
-                status=400
-            )
+        user_exists = User.objects.filter(email=email).exists()
+        
+        # mode rules: login/register/forgot
+
+        if mode == "login" and not user_exists:
+            return Response({"error": "User not registered"}, status=400)
+
+        if mode == "register" and user_exists:
+            return Response({"error": "User already exists"}, status=400)
+        
+        if mode == "forgot" and not user_exists:
+            return Response({"error": "User not registered"}, status=400)
 
         # delete old OTPs
         EmailOTP.objects.filter(email=email).delete()
@@ -75,7 +83,7 @@ class SendOTPView(APIView):
             [email],
         )
 
-        return Response({"status": "OTP sent"})   
+        return Response({"status": "OTP sent"})
 
 class VerifyOTPView(APIView):
     permission_classes = [AllowAny]
@@ -89,35 +97,111 @@ class VerifyOTPView(APIView):
 
         email = email.lower().strip()
 
-        #  CHECK USER EXISTS (IMPORTANT)
+        # Check user exists
         user = User.objects.filter(email=email).first()
-
         if not user:
-            return Response(
-                {"error": "User not registered"},
-                status=400
-            )
+            return Response({"error": "User not registered"}, status=400)
+
+        # Validate OTP
+        record = EmailOTP.objects.filter(email=email, otp=otp).last()
+
+        if not record:
+            return Response({"error": "Invalid OTP"}, status=400)
+
+        if now() - record.created_at > timedelta(minutes=5):
+            return Response({"error": "OTP expired"}, status=400)
+
+        # Generate token (NO password needed)
+        refresh = RefreshToken.for_user(user)
+
+        # Delete OTP
+        record.delete()
+
+        return Response({
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "email": user.email,
+            "display_name": user.name.split(" ")[0] if user.name else user.email.split("@")[0],
+            "org_slug": user.current_organisation.slug if user.current_organisation else None,
+            "org_role": None
+        })
+    
+
+class VerifyOTPRegisterView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+        otp = request.data.get("otp")
+        name = request.data.get("name")
+        password = request.data.get("password")
+
+        if not all([email, otp, name, password]):
+            return Response({"error": "All fields required"}, status=400)
+
+        email = email.lower().strip()
+
+        # Check OTP
+        record = EmailOTP.objects.filter(email=email, otp=otp).last()
+
+        if not record:
+            return Response({"error": "Invalid OTP"}, status=400)
+
+        if now() - record.created_at > timedelta(minutes=5):
+            return Response({"error": "OTP expired"}, status=400)
+
+        # Prevent duplicate users
+        if User.objects.filter(email=email).exists():
+            return Response({"error": "User already exists"}, status=400)
+
+        # Create user
+        user = User.objects.create(
+            email=email,
+            username=email,
+            name=name,
+            role="candidate"
+        )
+        user.set_password(password)
+        user.save()
+
+        record.delete()
+
+        return Response({
+            "message": "User registered successfully"
+        })
+    
+class VerifyOTPForgotView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get("email")
+        otp = request.data.get("otp")
+        new_password = request.data.get("password")
+
+        if not email or not otp or not new_password:
+            return Response({"error": "All fields required"}, status=400)
+
+        email = email.lower().strip()
+
+        user = User.objects.filter(email=email).first()
+        if not user:
+            return Response({"error": "User not registered"}, status=400)
 
         record = EmailOTP.objects.filter(email=email, otp=otp).last()
 
         if not record:
             return Response({"error": "Invalid OTP"}, status=400)
 
-        # expiry check (5 minutes)
         if now() - record.created_at > timedelta(minutes=5):
             return Response({"error": "OTP expired"}, status=400)
 
-        # generate JWT
-        refresh = RefreshToken.for_user(user)
+        #  reset password
+        user.set_password(new_password)
+        user.save()
 
-        # delete OTP after use
         record.delete()
 
-        return Response({
-            "access": str(refresh.access_token),
-            "refresh": str(refresh),
-            "no_org": not bool(user.current_organisation)
-        })
+        return Response({"message": "Password reset successful"})
 
 class GoogleAuthView(APIView):
     permission_classes = [AllowAny]
@@ -157,7 +241,7 @@ class GoogleAuthView(APIView):
                 defaults={
                     "username": email,
                     "role": "candidate",
-                    "name": display_name   # ✅ use name field
+                    "name": display_name   # use name field
                 }
             )
 

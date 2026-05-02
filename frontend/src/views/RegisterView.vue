@@ -51,7 +51,7 @@
                     <div class="flex flex-col lg:flex-row w-full gap-8 lg:gap-12 mb-8">
                         
                         <!-- Left Column: Inputs -->
-                        <div class="w-full lg:w-[50%] flex flex-col gap-6">
+                        <div class="w-full lg:w-[50%] flex flex-col gap-3">
                             <div class="relative">
                                 <input 
                                     v-model="name" 
@@ -113,7 +113,10 @@
                         </button>
                         
                         
-                        <button class="w-full py-4 text-[10px] uppercase tracking-super-wide font-bold transition-all duration-300 border-2 border-brutal-ink text-brutal-ink hover:bg-brutal-ink hover:text-brutal-paper flex items-center justify-center gap-3">
+                        <button 
+                        @click="triggerGoogleLogin"
+                        type="button"
+                        class="w-full py-4 text-[10px] uppercase tracking-super-wide font-bold transition-all duration-300 border-2 border-brutal-ink text-brutal-ink hover:bg-brutal-ink hover:text-brutal-paper flex items-center justify-center gap-3">
                             <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12.24 10.285V14.4h6.806c-.275 1.765-2.056 5.174-6.806 5.174-4.095 0-7.439-3.389-7.439-7.574s3.345-7.574 7.439-7.574c2.33 0 3.891.989 4.785 1.849l3.254-3.138C18.189 1.186 15.479 0 12.24 0c-6.635 0-12 5.365-12 12s5.365 12 12 12c6.926 0 11.52-4.869 11.52-11.726 0-.788-.085-1.39-.189-1.989H12.24z"/></svg>
                             Continue with Google
                         </button>
@@ -173,9 +176,16 @@
           </button>
 
           <div class="flex w-full justify-between gap-4">
-            <button @click="resendOtp" class="flex-1 border-2 border-[#1a1a1a] py-3 text-[9px] uppercase tracking-widest font-bold hover:bg-[#1a1a1a] hover:text-white transition-colors">
-              Resend OTP
-            </button>
+          <button 
+          @click="resendOtp"
+          :disabled="resendTimer > 0"
+          class="flex-1 border-2 border-[#1a1a1a] py-3 text-[9px] uppercase tracking-widest font-bold transition-colors"
+          :class="resendTimer > 0 
+          ? 'opacity-50 cursor-not-allowed' 
+          : 'hover:bg-[#1a1a1a] hover:text-white'"
+            >
+          {{ resendTimer > 0 ? `Resend in ${resendTimer}s` : 'Resend OTP' }}
+          </button>
             <button @click="closeOtpModal" class="flex-1 border-2 border-transparent text-gray-500 hover:text-[#ef3f23] py-3 text-[9px] uppercase tracking-widest font-bold transition-colors">
               Cancel
             </button>
@@ -188,12 +198,13 @@
   </div>
 </template>
 
+```vue
 <script setup>
 import { ref, onMounted, nextTick } from "vue"
 import { useRouter } from "vue-router"
 import api from "../services/api"
 import CaptchaBox from "../components/CaptchaBox.vue"
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
+
 const router = useRouter()
 
 const name = ref("")
@@ -201,12 +212,13 @@ const email = ref("")
 const password = ref("")
 const confirmPassword = ref("")
 const errorMessage = ref("")
+const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID
 
 // Captcha State
 const captchaVerified = ref(false)
 const captchaRef = ref(null)
 
-// --- NEW OTP STATE ---
+// OTP STATE
 const showOtpModal = ref(false)
 const otp = ref(['', '', '', '', '', ''])
 const otpInputs = ref([])
@@ -219,18 +231,12 @@ onMounted(() => {
 
 const validateForm = () => {
   errorMessage.value = ""
-    const usernameRegex = /^[a-zA-Z0-9]+$/
-    if (!usernameRegex.test(username.value)) {
-  errorMessage.value = "Username can only contain letters and numbers (a-z, A-Z, 0-9)."
-  return false
-    }
+
   if (!name.value || !email.value || !password.value || !confirmPassword.value) {
     errorMessage.value = "All fields are required."
     return false
   }
 
-
-  // Regex: At least 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special character
   const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/
   
   if (!passwordRegex.test(password.value)) {
@@ -251,62 +257,58 @@ const validateForm = () => {
   return true
 }
 
-// MODIFIED REGISTER FUNCTION: Now sends OTP instead of fully registering
+//  SEND OTP
 const register = async () => {
   if (!validateForm()) return
 
   try {
-    // Send OTP endpoint
     await api.post("accounts/send-otp/", {
-      email: email.value
+      email: email.value.trim().toLowerCase(),   // FIX: normalize email
+      mode: "register"
     })
     
-    // Show modal if successful
     showOtpModal.value = true
-    
-    // Auto-focus the first OTP input
+    startResendTimer()
+    otp.value = ['', '', '', '', '', '']         // FIX: reset OTP
+
     nextTick(() => {
-        otpInputs.value[0]?.focus()
+      otpInputs.value[0]?.focus()
     })
 
   } catch (error) {
-    console.error("OTP send error:", error)
-    
     if (error.response && error.response.data) {
-       const errors = Object.values(error.response.data).flat()
-       errorMessage.value = errors[0] || "Failed to send OTP. Please try again."
+      const errors = Object.values(error.response.data).flat()
+      errorMessage.value = errors[0] || "Failed to send OTP."
     } else {
-       errorMessage.value = "Failed to send OTP. Please check your connection."
+      errorMessage.value = "Failed to send OTP."
     }
   }
 }
 
-// --- NEW OTP LOGIC ---
-
+// OTP INPUT HANDLING
 const handleOtpInput = (index, event) => {
   const value = event.target.value
-  
-  // Ensure only digits are typed
+
   if (!/^\d*$/.test(value)) {
     otp.value[index] = ''
     return
   }
 
-  // Auto-focus next input
   if (value && index < 5) {
     otpInputs.value[index + 1]?.focus()
   }
 }
 
 const handleOtpKeydown = (index, event) => {
-  // Focus previous input on backspace if current is empty
   if (event.key === 'Backspace' && !otp.value[index] && index > 0) {
     otpInputs.value[index - 1]?.focus()
   }
 }
 
+// VERIFY OTP + REGISTER
 const verifyOtp = async () => {
   const otpString = otp.value.join('')
+
   if (otpString.length !== 6) {
     otpError.value = "Please enter all 6 digits."
     return
@@ -316,71 +318,83 @@ const verifyOtp = async () => {
   otpError.value = ""
 
   try {
-    await api.post("accounts/verify-otp/", {
+    await api.post("accounts/verify-otp-register/", {
+      email: email.value.trim().toLowerCase(),  // FIX: normalize email
+      otp: otpString,
       name: name.value,
-      email: email.value,
-      password: password.value,
-      otp: otpString
+      password: password.value
     })
 
-    alert("Registered successfully. Please log in.")
     closeOtpModal()
+    alert("Registered successfully. Please log in.")
     router.push("/login")
 
   } catch (error) {
-    console.error("OTP Verification error:", error)
     if (error.response && error.response.data) {
       const errors = Object.values(error.response.data).flat()
-      otpError.value = errors[0] || "Invalid OTP. Please try again."
+      otpError.value = errors[0] || "Invalid OTP."
     } else {
-      otpError.value = "Verification failed. Please check your connection."
+      otpError.value = "Verification failed."
     }
   } finally {
     otpLoading.value = false
   }
 }
 
-const initGoogleAuth = () => {
-  const script = document.createElement("script")
-  script.src = "https://accounts.google.com/gsi/client"
-  script.async = true
-  script.defer = true
-  document.head.appendChild(script)
+const resendCooldown = ref(30)   // 30 seconds
+const resendTimer = ref(0)
+let resendInterval = null
 
-  script.onload = () => {
-  window.google.accounts.id.initialize({
-    client_id: GOOGLE_CLIENT_ID,
-    callback: handleGoogleCallback,
-    auto_select: false,
-    cancel_on_tap_outside: false
-  })
-}
+const startResendTimer = () => {
+  resendTimer.value = resendCooldown.value
+
+  clearInterval(resendInterval)
+
+  resendInterval = setInterval(() => {
+    if (resendTimer.value > 0) {
+      resendTimer.value--
+    } else {
+      clearInterval(resendInterval)
+    }
+  }, 1000)
 }
 
+// RESEND OTP
 const resendOtp = async () => {
   otpError.value = ""
   try {
-    await api.post("accounts/send-otp/", { email: email.value })
-    alert("OTP has been resent to your email.")
-  } catch (error) {
-    console.error("Resend OTP error:", error)
-    otpError.value = "Failed to resend OTP. Try again later."
+    await api.post("accounts/send-otp/", {
+      email: email.value.trim().toLowerCase(),  // FIX
+      mode: "register"
+    })
+    alert("OTP has been resent.")
+    startResendTimer()
+  } catch {
+    otpError.value = "Failed to resend OTP."
   }
 }
 
+// CLOSE MODAL
 const closeOtpModal = () => {
   showOtpModal.value = false
   otp.value = ['', '', '', '', '', '']
   otpError.value = ""
 }
-</script>
 
-<style scoped>
-/* Basic fade for modal entry */
-.fade-enter-active, .fade-leave-active {
-  transition: opacity 0.3s ease;
+// GOOGLE LOGIN (same as login view)
+const triggerGoogleLogin = () => {
+  console.log("REGISTER GOOGLE CLICKED")   // add this
+  window.location.href =
+    "https://accounts.google.com/o/oauth2/v2/auth?" +
+    new URLSearchParams({
+      client_id:GOOGLE_CLIENT_ID,
+      redirect_uri: window.location.origin + "/auth/google",
+      response_type: "id_token",
+      scope: "openid email profile",
+      nonce: "random_nonce_123456"
+    })
 }
-.fade-enter-from, .fade-leave-to {
-  opacity: 0;
-}
-</style>
+</script>
+```
+
+```

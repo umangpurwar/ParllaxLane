@@ -94,7 +94,6 @@ class OrganisationInvite(models.Model):
         return f"{self.email} -> {self.organisation}"
     
 
-
 class OrganisationInvite(models.Model):
     organisation = models.ForeignKey(
         Organisation,

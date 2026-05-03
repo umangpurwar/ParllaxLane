@@ -1,4 +1,11 @@
 <template>
+
+   <div class="relative w-full h-screen overflow-hidden bg-brutal-dark font-sans">
+    <div class="fixed inset-0 z-0 bg-brutal-maroon overflow-hidden">
+        <div class="absolute top-[-10%] left-[0%] w-[80%] h-[80%] bg-brutal-glow1 rounded-full mix-blend-screen filter blur-[140px] opacity-70 animate-pulse"></div>
+        <div class="absolute bottom-[-10%] right-[-10%] w-[70%] h-[70%] bg-brutal-glow2 rounded-full mix-blend-screen filter blur-[150px] opacity-80"></div>
+    </div>
+
 <transition name="reveal" appear>
   <div class="relative z-10 w-[92vw] max-w-[1600px] h-[90vh] mx-auto mt-[5vh] bg-brutal-paper shadow-2xl flex flex-col overflow-hidden">
     
@@ -80,7 +87,7 @@
                 <button 
                  @click="triggerGoogleLogin" 
                 type="button" 
-                class="flex items-center justify-center gap-3 w-full py-4 px-4 text-[10px] uppercase tracking-super-wide font-bold border border-brutal-ink bg-transparent hover:bg-brutal-ink hover:text-brutal-paper transition-all duration-300 text-brutal-ink"
+                class="flex items-center justify-center gap-3 w-full py-4 px-4 text-[10px] uppercase tracking-super-wide font-bold border-2 border-brutal-ink bg-transparent hover:bg-brutal-ink hover:text-brutal-paper transition-all duration-300 text-brutal-ink"
                 :disabled="isLoading"
                   >
                 <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
@@ -276,7 +283,7 @@
     </div>
   </div>
 </transition>
-
+</div>
 </template>
 
 <script setup>
@@ -416,12 +423,7 @@ const handleAuthSuccess = (data) => {
   )
   localStorage.setItem("email", data.email || "")
 
-  if (!data.org_slug) {
-    router.push("/org-home")
-    return
-  }
-  
-  router.push("/dashboard")
+  router.push("/org-home")
 }
 
 const login = async () => {

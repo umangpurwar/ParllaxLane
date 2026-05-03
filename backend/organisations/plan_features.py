@@ -1,4 +1,5 @@
 # organisations/plan_features.py
+
 PLAN_FEATURES = {
     "free": {
         "allowed_question_types": ["mcq"],
@@ -19,6 +20,7 @@ PLAN_FEATURES = {
         "file_upload": True,
     }
 }
+
 
 def get_plan_features(org):
     return PLAN_FEATURES.get(org.plan, PLAN_FEATURES["free"])

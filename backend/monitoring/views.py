@@ -4,9 +4,10 @@ from django.utils.timezone import now
 from rest_framework.decorators import api_view, permission_classes
 from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
-from django.db.models import F
+from django.db.models import F, OuterRef, Subquery
 import cloudinary.uploader
-from core.permissions import IsOrgMember
+
+from core.permissions import IsOrgMember, IsOrgInvigilator
 from .models import Violation, Screenshot
 from exams.models import ExamAttempt
 
@@ -56,6 +57,12 @@ class LogViolationView(APIView):
             severity = 10
 
         org = request.user.current_organisation
+
+        if not org.proctoring_enabled:
+            return Response(
+                {"error": "proctoring not enabled for your plan"},
+                status=403
+            )
 
         try:
             attempt = ExamAttempt.objects.get(
@@ -123,6 +130,12 @@ class ScreenshotUploadView(APIView):
 
         org = request.user.current_organisation
 
+        if not org.proctoring_enabled:
+            return Response(
+                {"error": "proctoring not enabled for your plan"},
+                status=403
+            )
+
         try:
             attempt = ExamAttempt.objects.get(
                 id=attempt_id,
@@ -181,3 +194,48 @@ def student_heartbeat(request):
         return Response({"error": "Invalid attempt"}, status=400)
 
     return Response({"status": "alive"})
+
+class LiveMonitorView(APIView):
+    permission_classes = [IsOrgInvigilator]
+
+    def get(self, request, exam_id):
+
+        org = request.user.current_organisation
+
+        if not org.proctoring_enabled:
+            return Response(
+                {"error": "live monitor not available in your plan"},
+                status=403
+            )
+
+        latest_violation = Violation.objects.filter(
+            attempt=OuterRef('pk')
+        ).order_by('-timestamp')
+
+        latest_screenshot = Screenshot.objects.filter(
+            attempt=OuterRef('pk')
+        ).order_by('-timestamp')
+
+        attempts = ExamAttempt.objects.filter(
+            exam_id=exam_id,
+            exam__organisation=org
+        ).select_related("user").annotate(
+            last_violation_type=Subquery(latest_violation.values("violation_type")[:1]),
+            last_violation_time=Subquery(latest_violation.values("timestamp")[:1]),
+            last_screenshot=Subquery(latest_screenshot.values("image")[:1]),
+        )
+
+        data = []
+
+        for a in attempts:
+            data.append({
+                "user": a.user.username,
+                "status": a.status,
+                "risk_score": a.risk_score,
+                "violations": a.total_violations,
+                "last_violation": a.last_violation_type,
+                "last_violation_time": a.last_violation_time,
+                "latest_screenshot": a.last_screenshot
+            })
+
+        return Response(data)

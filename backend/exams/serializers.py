@@ -26,18 +26,6 @@ class CandidateQuestionSerializer(serializers.ModelSerializer):
             "options",
         ]
 
-class CandidateQuestionSerializer(serializers.ModelSerializer):
-    options = CandidateOptionSerializer(many=True)
-
-    class Meta:
-        model = Question
-        fields = [
-            'id',
-            'text',
-            'question_type',
-            'points',
-            'options'
-        ]
 class CandidateExamDetailSerializer(serializers.ModelSerializer):
     questions = CandidateQuestionSerializer(many=True)
 
@@ -126,16 +114,25 @@ class ExamSerializer(serializers.ModelSerializer):
         request = self.context.get("request")
         org = request.user.current_organisation
 
+        # enforce max exams limit
+        existing_exams = Exam.objects.filter(organisation=org, is_active=True).count()
+        if org.max_exams != -1:
+            if existing_exams >= org.max_exams:
+                raise serializers.ValidationError(
+                    {"error": "exam limit reached for your plan"}
+                )
+
         features = get_plan_features(org)
         allowed_types = features.get("allowed_question_types", [])
 
         questions_data = validated_data.pop("questions")
 
-        # validate first
-        if len(questions_data) > features["max_questions"]:
-            raise serializers.ValidationError(
-                {"error": "Question limit exceeded for your plan"}
-            )
+        # validate first (supports unlimited)
+        if features["max_questions"] != -1:
+            if len(questions_data) > features["max_questions"]:
+                raise serializers.ValidationError(
+                    {"error": "Question limit exceeded for your plan"}
+                )
 
         for question_data in questions_data:
             q_type = question_data.get("question_type", "mcq")
@@ -190,12 +187,13 @@ class ExamSerializer(serializers.ModelSerializer):
 
         if questions_data is not None:
 
-            if len(questions_data) > features["max_questions"]:
-                raise serializers.ValidationError(
-                    {"error": "Question limit exceeded for your plan"}
-                )
+            # validate first (supports unlimited)
+            if features["max_questions"] != -1:
+                if len(questions_data) > features["max_questions"]:
+                    raise serializers.ValidationError(
+                        {"error": "Question limit exceeded for your plan"}
+                    )
 
-            # validate first
             for question_data in questions_data:
                 q_type = question_data.get("question_type", "mcq")
 
@@ -231,8 +229,6 @@ class ExamSerializer(serializers.ModelSerializer):
                     )
 
         return instance
-
-
 class AnswerSerializer(serializers.ModelSerializer):
     class Meta:
         model = Answer

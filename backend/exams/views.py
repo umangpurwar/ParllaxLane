@@ -19,11 +19,9 @@ class ExamListView(generics.ListAPIView):
         org = self.request.user.current_organisation
         return Exam.objects.filter(
             organisation=org,
-            is_published=True
+            is_published=True,
+            is_active=True
         )
-
-from django.utils.timezone import now
-from rest_framework.exceptions import PermissionDenied
 
 from .serializers import (
     ExamDetailSerializer,
@@ -48,6 +46,7 @@ class ExamDetailView(generics.RetrieveAPIView):
         return Exam.objects.filter(
             organisation=org,
             is_published=True,
+            is_active=True,
             start_time__lte=now(),
             end_time__gte=now()
         )
@@ -105,6 +104,27 @@ class StartExamView(generics.GenericAPIView):
 
         if now() > exam.end_time:
             return Response({"error": "Exam period has ended"}, status=403)
+        
+        existing_attempts = ExamAttempt.objects.filter(exam=exam).count()
+
+        if exam.organisation.max_candidates != -1:
+            if existing_attempts >= exam.organisation.max_candidates:
+                return Response(
+                    {"error": "candidate limit reached for this exam"},
+                    status=403
+                    )
+        
+        existing = ExamAttempt.objects.filter(
+            user=request.user,
+            exam=exam,
+            status="active"
+        ).first()
+
+        if existing:
+            return Response(
+                {"error": "exam already started"},
+                status=400
+            )
 
         attempt = ExamAttempt.objects.create(
             user=request.user,
@@ -142,8 +162,9 @@ class SubmitExamView(generics.GenericAPIView):
         # Get latest attempt
         attempt = ExamAttempt.objects.filter(
             user=user,
-            exam=exam
-        ).last()
+            exam=exam,
+            status="active"
+        ).first()
 
         if not attempt:
             return Response({"error": "No active exam attempt found"}, status=400)

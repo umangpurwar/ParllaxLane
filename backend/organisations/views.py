@@ -132,10 +132,15 @@ class InviteMemberView(APIView):
         if role == "admin" and org.plan == "free":
             return Response({"error": "upgrade to pro to add admins"}, status=403)
 
-        if role == "admin":
+        if role == "admin" and org.max_admins != -1:
             admin_count = org.members.filter(role="admin").count()
-            if admin_count >= 3:
+            if admin_count >= org.max_admins:
                 return Response({"error": "admin limit reached"}, status=403)
+            
+            if role == "invigilator" and org.max_invigilators != -1:
+                inv_count = org.members.filter(role="invigilator").count()
+                if inv_count >= org.max_invigilators:
+                    return Response({"error": "invigilator limit reached"}, status=403)
 
         expires_at = None
         if expiry_days:
@@ -305,10 +310,14 @@ def update_member_role(request, slug, username):
         return Response({"error": "upgrade to pro to add admins"}, status=403)
 
     # pro admin limit (3 admins max)
-    if new_role == "admin":
+    if new_role == "admin" and org.max_admins != -1:
         admin_count = org.members.filter(role="admin").exclude(user=member.user).count()
-        if admin_count >= 3:
+        if admin_count >= org.max_admins:
             return Response({"error": "admin limit reached"}, status=403)
+        if new_role == "invigilator" and org.max_invigilators != -1:
+            inv_count = org.members.filter(role="invigilator").exclude(user=member.user).count()
+            if inv_count >= org.max_invigilators:
+                return Response({"error": "invigilator limit reached"}, status=403)
 
     member.role = new_role
     member.save()

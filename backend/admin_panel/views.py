@@ -29,10 +29,31 @@ def live_monitor(request, exam_id):
 
     data = []
 
+    # get latest violation per attempt using subquery
+    latest_violation_qs = Violation.objects.filter(
+        attempt=OuterRef('pk')
+    ).order_by('-timestamp')
+
+    # get latest screenshot per attempt using subquery
+    latest_screenshot_qs = Screenshot.objects.filter(
+        attempt=OuterRef('pk')
+    ).order_by('-timestamp')
+
+    # annotate attempts with latest violation and screenshot
     attempts = (
         ExamAttempt.objects
         .filter(exam=exam)
         .select_related("user")
+        .annotate(
+            latest_violation_type=Subquery(latest_violation_qs.values('violation_type')[:1]),
+            latest_violation_severity=Subquery(latest_violation_qs.values('severity')[:1]),
+            latest_violation_timestamp=Subquery(latest_violation_qs.values('timestamp')[:1]),
+            latest_violation_metadata=Subquery(latest_violation_qs.values('metadata')[:1]),
+
+            latest_screenshot_id=Subquery(latest_screenshot_qs.values('id')[:1]),
+            latest_screenshot_image=Subquery(latest_screenshot_qs.values('image')[:1]),
+            latest_screenshot_timestamp=Subquery(latest_screenshot_qs.values('timestamp')[:1]),
+        )
         .order_by("user_id", "-start_time", "-id")
     )
 
@@ -51,21 +72,26 @@ def live_monitor(request, exam_id):
         if attempt.status == 'terminated':
             display_status = 'terminated'
 
-        latest_violation = (
-            Violation.objects
-            .filter(attempt=attempt)
-            .order_by("-timestamp")
-            .first()
-        )
+        # use annotated metadata instead of query
+        metadata = attempt.latest_violation_metadata or {}
 
-        metadata = latest_violation.metadata if latest_violation and latest_violation.metadata else {}
+        # build latest violation object
+        latest_violation = None
+        if attempt.latest_violation_type:
+            latest_violation = {
+                "type": attempt.latest_violation_type,
+                "severity": attempt.latest_violation_severity,
+                "timestamp": attempt.latest_violation_timestamp
+            }
 
-        latest_screenshot = (
-            Screenshot.objects
-            .filter(attempt=attempt)
-            .order_by("-timestamp")
-            .first()
-        )
+        # build latest screenshot object
+        latest_screenshot = None
+        if attempt.latest_screenshot_id:
+            latest_screenshot = {
+                "id": attempt.latest_screenshot_id,
+                "image_url": attempt.latest_screenshot_image,
+                "timestamp": attempt.latest_screenshot_timestamp
+            }
 
         system_health = {
             "camera": metadata.get("camera", True),
@@ -81,21 +107,12 @@ def live_monitor(request, exam_id):
             "status": display_status,
             "system_health": system_health,
 
-            "latest_violation": {
-                "type": latest_violation.violation_type,
-                "severity": latest_violation.severity,
-                "timestamp": latest_violation.timestamp
-            } if latest_violation else None,
+            "latest_violation": latest_violation,
 
-            "latest_screenshot": {
-                "id": latest_screenshot.id,
-                "image_url": latest_screenshot.image if latest_screenshot else None,  # ✅ FIXED
-                "timestamp": latest_screenshot.timestamp
-            } if latest_screenshot else None
+            "latest_screenshot": latest_screenshot
         })
 
     return Response(data)
-
 
 # ---------------- USER DETAIL ----------------
 

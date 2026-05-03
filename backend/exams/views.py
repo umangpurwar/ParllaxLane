@@ -1,15 +1,13 @@
 from rest_framework import generics
 from rest_framework.response import Response
 from rest_framework.decorators import api_view, permission_classes
+from rest_framework.exceptions import PermissionDenied
 from .models import Question, Answer, ExamAttempt, Exam, QuestionOption
 from django.utils.timezone import now
 from core.permissions import IsOrgMember, IsOrgAdmin
 from django.utils.decorators import method_decorator
 from django_ratelimit.decorators import ratelimit
-from .serializers import ExamListSerializer
-
-
-from .serializers import ExamSerializer, ExamDetailSerializer
+from .serializers import ExamListSerializer, CandidateExamDetailSerializer,ExamSerializer, ExamDetailSerializer
 from monitoring.models import Violation
 
 class ExamListView(generics.ListAPIView):
@@ -24,17 +22,68 @@ class ExamListView(generics.ListAPIView):
             is_published=True
         )
 
+from django.utils.timezone import now
+from rest_framework.exceptions import PermissionDenied
+
+from .serializers import (
+    ExamDetailSerializer,
+    CandidateExamDetailSerializer
+)
+
+from .models import ExamAttempt
+
+
 class ExamDetailView(generics.RetrieveAPIView):
 
-    serializer_class = ExamDetailSerializer
     permission_classes = [IsOrgMember]
 
     def get_queryset(self):
-        org = self.request.user.current_organisation
+        user = self.request.user
+        org = user.current_organisation
+
+        if not org:
+            raise PermissionDenied("No organisation selected")
+
+        #  Only active exams in time window
         return Exam.objects.filter(
             organisation=org,
-            is_published=True
+            is_published=True,
+            start_time__lte=now(),
+            end_time__gte=now()
         )
+
+    def get_object(self):
+        obj = super().get_object()
+
+        user = self.request.user
+
+        # must have an active attempt
+        attempt = ExamAttempt.objects.filter(
+            user=user,
+            exam=obj,
+            status="active"
+        ).first()
+
+        if not attempt:
+            raise PermissionDenied("Start exam first")
+
+        return obj
+
+    def get_serializer_class(self):
+        user = self.request.user
+        org = user.current_organisation
+
+        membership = user.memberships.filter(
+            organisation=org,
+            is_active=True
+        ).first()
+
+        # if user is admin then return correct answer too
+        if membership and membership.role in ["owner", "admin", "invigilator"]:
+            return ExamDetailSerializer
+
+        # else candidate serializer without answer one 
+        return CandidateExamDetailSerializer
 
 class StartExamView(generics.GenericAPIView):
 

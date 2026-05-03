@@ -6,7 +6,6 @@ from django_ratelimit.decorators import ratelimit
 from django.utils.decorators import method_decorator
 from django.db.models import F
 import cloudinary.uploader
-
 from core.permissions import IsOrgMember
 from .models import Violation, Screenshot
 from exams.models import ExamAttempt
@@ -110,7 +109,7 @@ class LogViolationView(APIView):
 class ScreenshotUploadView(APIView):
     permission_classes = [IsOrgMember]
 
-    @method_decorator(ratelimit(key='user', rate='2/m', method='POST', block=True))
+    @method_decorator(ratelimit(key='user', rate='4/m', method='POST', block=True))
     def post(self, request):
 
         attempt_id = request.data.get("attempt_id")

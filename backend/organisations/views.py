@@ -2,12 +2,15 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.shortcuts import get_object_or_404
-
-from .models import Organisation, OrganisationMember
+from .models import Organisation, OrganisationMember,OrganisationInvite
 from django.contrib.auth import get_user_model
 import uuid
-from .models import OrganisationInvite
 from django.utils.text import slugify
+from rest_framework.decorators import api_view, permission_classes
+from core.permissions import IsOrgAdmin
+from django.core.cache import cache
+from django.utils.timezone import now
+from datetime import timedelta
 
 User = get_user_model()
 
@@ -111,17 +114,10 @@ class SwitchOrganisationView(APIView):
 
 
 class InviteMemberView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrgAdmin]
 
     def post(self, request, slug):
         org = get_object_or_404(Organisation, slug=slug)
-
-        # check admin access
-        if not org.members.filter(
-            user=request.user,
-            role__in=["owner", "admin"]
-        ).exists():
-            return Response({"error": "Forbidden"}, status=403)
 
         email = request.data.get("email")
         role = request.data.get("role", "candidate")
@@ -130,13 +126,22 @@ class InviteMemberView(APIView):
         if not email:
             return Response({"error": "email required"}, status=400)
 
-        # handle expiry (admin controlled)
+        if role not in ["admin", "invigilator", "candidate"]:
+            return Response({"error": "invalid role"}, status=400)
+
+        if role == "admin" and org.plan == "free":
+            return Response({"error": "upgrade to pro to add admins"}, status=403)
+
+        if role == "admin":
+            admin_count = org.members.filter(role="admin").count()
+            if admin_count >= 3:
+                return Response({"error": "admin limit reached"}, status=403)
+
         expires_at = None
         if expiry_days:
             try:
                 expiry_days = int(expiry_days)
 
-                # safety limit
                 if expiry_days < 1 or expiry_days > 30:
                     return Response(
                         {"error": "expiry_days must be between 1 and 30"},
@@ -148,7 +153,6 @@ class InviteMemberView(APIView):
             except:
                 return Response({"error": "Invalid expiry_days"}, status=400)
 
-        # create invite
         invite = OrganisationInvite.objects.create(
             organisation=org,
             email=email,
@@ -157,7 +161,6 @@ class InviteMemberView(APIView):
             expires_at=expires_at
         )
 
-        # check if user already exists
         user = User.objects.filter(email=email).first()
 
         if user:
@@ -170,6 +173,8 @@ class InviteMemberView(APIView):
             invite.accepted = True
             invite.save()
 
+            cache.delete(f"membership:{user.id}:{org.id}")
+
             return Response({
                 "status": "user added directly",
                 "org_slug": org.slug,
@@ -180,23 +185,17 @@ class InviteMemberView(APIView):
 
         return Response({
             "status": "invite created",
-            "invite_token": invite.token,
+            "invite_link": f"/api/organisations/accept/{invite.token}/",
             "expires_at": invite.expires_at
         })
-    
+
 
 # 5. List members (admin only)
 class OrganisationMembersView(APIView):
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsOrgAdmin]
 
     def get(self, request, slug):
         org = get_object_or_404(Organisation, slug=slug)
-
-        if not org.members.filter(
-            user=request.user,
-            role__in=["owner", "admin"]
-        ).exists():
-            return Response({"error": "Forbidden"}, status=403)
 
         members = org.members.select_related("user")
 
@@ -204,7 +203,8 @@ class OrganisationMembersView(APIView):
             {
                 "username": m.user.username,
                 "email": m.user.email,
-                "role": m.role
+                "role": m.role,
+                "joined_at": m.joined_at
             }
             for m in members
         ]
@@ -226,6 +226,9 @@ class AcceptInviteView(APIView):
 
         if invite.expires_at and now() > invite.expires_at:
             return Response({"error": "Invite expired"}, status=400)
+        
+        if request.user.email != invite.email:
+            return Response({"error": "this invite is not for your email"}, status=403)
 
         # ONLY AFTER VALIDATION then create member
         member, _ = OrganisationMember.objects.get_or_create(
@@ -248,3 +251,117 @@ class AcceptInviteView(APIView):
             "org_plan": invite.organisation.plan,
             "org_role": member.role
         })
+
+
+@api_view(['DELETE'])
+@permission_classes([IsOrgAdmin])
+def remove_member(request, slug, username):
+
+    org = get_object_or_404(Organisation, slug=slug)
+
+    member = get_object_or_404(
+        OrganisationMember,
+        organisation=org,
+        user__username=username
+    )
+
+    # prevent removing owner
+    if member.role == "owner":
+        return Response({"error": "cannot remove owner"}, status=400)
+
+    # prevent removing yourself
+    if member.user == request.user:
+        return Response({"error": "cannot remove yourself"}, status=400)
+
+    cache.delete(f"membership:{member.user.id}:{org.id}")
+
+    member.delete()
+
+    return Response({"status": "member removed"})
+
+
+@api_view(['PATCH'])
+@permission_classes([IsOrgAdmin])
+def update_member_role(request, slug, username):
+
+    org = get_object_or_404(Organisation, slug=slug)
+
+    member = get_object_or_404(
+        OrganisationMember,
+        organisation=org,
+        user__username=username
+    )
+
+    new_role = request.data.get("role")
+
+    if new_role not in ["admin", "invigilator", "candidate"]:
+        return Response({"error": "invalid role"}, status=400)
+
+    if member.role == "owner":
+        return Response({"error": "cannot change owner role"}, status=400)
+
+    # plan check
+    if org.plan == "free" and new_role == "admin":
+        return Response({"error": "upgrade to pro to add admins"}, status=403)
+
+    # pro admin limit (3 admins max)
+    if new_role == "admin":
+        admin_count = org.members.filter(role="admin").exclude(user=member.user).count()
+        if admin_count >= 3:
+            return Response({"error": "admin limit reached"}, status=403)
+
+    member.role = new_role
+    member.save()
+
+    cache.delete(f"membership:{member.user.id}:{org.id}")
+
+    return Response({"status": "role updated"})
+
+
+@api_view(['GET'])
+@permission_classes([IsOrgAdmin])
+def list_invites(request, slug):
+
+    org = get_object_or_404(Organisation, slug=slug)
+
+    invites = OrganisationInvite.objects.filter(
+        organisation=org,
+        accepted=False,
+        is_revoked=False
+    ).order_by('-created_at')
+
+    data = []
+
+    for invite in invites:
+        data.append({
+            "email": invite.email,
+            "role": invite.role,
+            "token": invite.token,
+            "expires_at": invite.expires_at,
+            "created_at": invite.created_at
+        })
+
+    return Response(data)
+
+@api_view(['POST'])
+@permission_classes([IsOrgAdmin])
+def revoke_invite(request, slug, token):
+
+    org = get_object_or_404(Organisation, slug=slug)
+
+    invite = get_object_or_404(
+        OrganisationInvite,
+        token=token,
+        organisation=org
+    )
+
+    if invite.accepted:
+        return Response({"error": "cannot revoke accepted invite"}, status=400)
+
+    if invite.is_revoked:
+        return Response({"error": "invite already revoked"}, status=400)
+
+    invite.is_revoked = True
+    invite.save()
+
+    return Response({"status": "invite revoked"})

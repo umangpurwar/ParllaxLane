@@ -4,6 +4,53 @@ from .models import Exam, Question, QuestionOption, ExamAttempt, Answer
 from organisations.plan_features import get_plan_features
 
 
+
+class CandidateOptionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = QuestionOption
+        fields = ["id", "text"] 
+
+class CandidateQuestionSerializer(serializers.ModelSerializer):
+    options = CandidateOptionSerializer(many=True, read_only=True)
+
+    class Meta:
+        model = Question
+        fields = [
+            "id",
+            "text",
+            "question_type",
+            "points",
+            "negative_points",
+            "order",
+            "image",
+            "options",
+        ]
+
+class CandidateQuestionSerializer(serializers.ModelSerializer):
+    options = CandidateOptionSerializer(many=True)
+
+    class Meta:
+        model = Question
+        fields = [
+            'id',
+            'text',
+            'question_type',
+            'points',
+            'options'
+        ]
+class CandidateExamDetailSerializer(serializers.ModelSerializer):
+    questions = CandidateQuestionSerializer(many=True)
+
+    class Meta:
+        model = Exam
+        fields = [
+            'id',
+            'title',
+            'description',
+            'duration',
+            'questions'
+        ]
+
 class QuestionOptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = QuestionOption
@@ -196,7 +243,6 @@ class AnswerSerializer(serializers.ModelSerializer):
             "selected_option",
             "text_answer",
             "file_upload",
-            "is_correct",
         ]
 
 

@@ -1,10 +1,7 @@
 from rest_framework.permissions import BasePermission
-
+from django.core.cache import cache
 
 def get_membership(user):
-    """
-    Returns the active membership of the user in current organisation.
-    """
     if not user or not user.is_authenticated:
         return None
 
@@ -12,40 +9,48 @@ def get_membership(user):
     if not org:
         return None
 
-    return org.members.filter(user=user, is_active=True).first()
+    membership_key = f"membership:{user.id}:{org.id}"
+    plan_key = f"org_plan:{org.id}"
+
+    membership = cache.get(membership_key)
+
+    if membership is not None:
+        return membership
+
+    membership = user.memberships.select_related("organisation", "user").filter(
+        organisation=org,
+        is_active=True
+    ).first()
+
+    cache.set(membership_key, membership, timeout=300)
+
+    if cache.get(plan_key) is None:
+        cache.set(plan_key, org.plan, timeout=300)
+
+    return membership
 
 
 class IsOrgMember(BasePermission):
-    """User must belong to current organisation"""
-
     def has_permission(self, request, view):
         return get_membership(request.user) is not None
 
 
 class IsOrgAdmin(BasePermission):
-    """User must be admin or owner in current org"""
-
     def has_permission(self, request, view):
         membership = get_membership(request.user)
         if not membership:
             return False
-
         return membership.role in ["owner", "admin"]
 
 
 class IsOrgInvigilator(BasePermission):
-    """Owner, admin, or invigilator can access"""
-
     def has_permission(self, request, view):
         membership = get_membership(request.user)
         if not membership:
             return False
-
         return membership.role in ["owner", "admin", "invigilator"]
 
 
 class IsSuperAdmin(BasePermission):
-    """Platform-level admin (Django staff)"""
-
     def has_permission(self, request, view):
         return bool(request.user and request.user.is_authenticated and request.user.is_staff)

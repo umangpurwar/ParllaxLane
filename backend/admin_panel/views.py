@@ -9,7 +9,7 @@ from core.permissions import IsOrgAdmin, IsOrgInvigilator
 from datetime import timedelta
 from django.utils.timezone import now
 from django.utils.dateparse import parse_datetime
-from exams.serializers import ExamSerializer, ExamDetailSerializer
+from exams.serializers import ExamSerializer, ExamDetailSerializer, ExamListSerializer
 from django.contrib.auth import get_user_model
 from exams.models import QuestionOption
 
@@ -198,7 +198,7 @@ def list_exams(request):
 
     exams = Exam.objects.filter(organisation=org)
 
-    serializer = ExamDetailSerializer(exams, many=True)
+    serializer = ExamListSerializer(exams, many=True)
     return Response(serializer.data)
 
 

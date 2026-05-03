@@ -116,8 +116,18 @@ class ExamAttempt(models.Model):
     risk_score = models.IntegerField(default=0)
     total_violations = models.IntegerField(default=0)
 
-    status = models.CharField(max_length=20, default="active")
-    last_active = models.DateTimeField(default=now)
+    STATUS_CHOICES = [
+        ("active", "Active"),
+        ("submitted", "Submitted"),
+        ("terminated", "Terminated"),
+        ]
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="active"
+    )
+    last_active = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"{self.user} - {self.exam}"

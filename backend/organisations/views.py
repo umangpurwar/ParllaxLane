@@ -62,7 +62,11 @@ class MyOrganisationsView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        memberships = OrganisationMember.objects.filter(user=request.user)
+        memberships = (
+            OrganisationMember.objects
+            .filter(user=request.user, is_active=True)
+            .select_related("organisation")
+        )
 
         data = [
             {
@@ -73,7 +77,10 @@ class MyOrganisationsView(APIView):
             for m in memberships
         ]
 
-        return Response(data)
+        return Response({
+            "count": len(data),
+            "organisations": data
+        })
 
 
 #  3. Switch organisation
@@ -241,23 +248,3 @@ class AcceptInviteView(APIView):
             "org_plan": invite.organisation.plan,
             "org_role": member.role
         })
-    
-class MyOrganisationsView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def get(self, request):
-        memberships = OrganisationMember.objects.filter(
-            user=request.user,
-            is_active=True
-        )
-
-        data = [
-            {
-                "slug": m.organisation.slug,
-                "name": m.organisation.name,
-                "role": m.role
-            }
-            for m in memberships
-        ]
-
-        return Response(data)
